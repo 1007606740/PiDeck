@@ -1101,12 +1101,16 @@ body.is-resizing .wechat-shell {
 }
 
 /*
- * 侧栏品牌 lockup：仅 PiLogoCanvas（官网同款 canvas 像素 π + 拼装动画）
+ * 侧栏品牌 lockup：π 标 + 字标，垂直居中平齐。
+ * canvas 已裁掉棋盘空边；整体略右移，logo/字标拉开间距。
  */
 .brand-lockup {
   display: inline-flex;
   align-items: center;
-  gap: 0;
+  gap: 14px;
+  height: 34px;
+  /* 整体右移，避免贴侧栏左缘 */
+  margin-left: 8px;
   color: var(--color-text-primary);
   min-width: 0;
   line-height: 0;
@@ -1117,9 +1121,14 @@ body.is-resizing .wechat-shell {
   box-sizing: border-box;
   display: block;
   flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  margin: 0;
   cursor: pointer;
   line-height: 0;
-  border-radius: 2px;
+  border-radius: 0;
+  background: transparent;
 }
 
 .pi-logo-canvas-stage:focus-visible {
@@ -1127,31 +1136,45 @@ body.is-resizing .wechat-shell {
   outline-offset: 2px;
 }
 
-.pi-logo-canvas,
-.pi-deck-wordmark-canvas {
+.pi-logo-canvas {
   display: block;
+  width: 34px;
+  height: 34px;
+  margin: 0;
+  padding: 0;
   /* 关闭插值，保持像素块锐利 */
   image-rendering: pixelated;
 }
 
-.pi-deck-wordmark-canvas {
-  flex: 0 0 auto;
-  /* 小字标相对左侧高棋盘略上移，光学居中 */
-  transform: translateY(1px);
+/*
+ * 字标：与空状态 empty-tagline 同族品牌衬线（PiDeckPlantin）。
+ * 可变字重有效，无需 Departure Mono 的伪加粗。
+ */
+.brand-wordmark {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-family-brand);
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  /* 衬线字标与 34px logo 光学对齐，略下移 */
+  transform: translateY(2px);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-.brand-wordmark {
-  display: inline-block;
-  position: relative;
-  font-family: var(--font-family-display-mono);
-  font-size: 18px;
-  line-height: 1;
-  font-weight: 400;
-  letter-spacing: 0;
-  color: var(--color-text-primary);
-  font-synthesis: none;
-  -webkit-font-smoothing: none;
-  text-rendering: geometricPrecision;
+/* 点阵字标组件若他处复用，仍保持像素绘制；侧栏品牌不再使用 */
+.pi-deck-wordmark-canvas {
+  display: block;
+  flex: 0 0 auto;
+  image-rendering: pixelated;
 }
 .homepage-icon:hover {
   background: var(--color-bg-hover);
@@ -6932,20 +6955,12 @@ body.ask-bar-active .ask-question-card.pending {
 }
 .composer-resize-handle:hover::before,
 body.is-composer-resizing .composer-resize-handle::before {
-  background: color-mix(
-    in srgb,
-    var(--color-accent) 28%,
-    var(--color-border-strong)
-  );
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 14%, transparent);
+  background: var(--color-border-strong);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-border-strong) 24%, transparent);
 }
 .composer-resize-handle:hover::after,
 body.is-composer-resizing .composer-resize-handle::after {
-  background: color-mix(
-    in srgb,
-    var(--color-accent) 42%,
-    var(--color-border-strong)
-  );
+  background: var(--color-border-strong);
   opacity: 1;
 }
 .composer textarea {
@@ -18742,17 +18757,24 @@ html[data-theme="dark"] .scratch-pad-md mark {
 .chat-list-pane.v3-braun .sidebar-body .list-toolbar {
   height: auto;
   padding: 0;
+  margin: 0;
   flex-shrink: 0;
+  align-items: center;
 }
 
 .chat-list-pane.v3-braun .sidebar-body .app-badge {
   gap: 0;
-  padding: var(--space-1) 0;
+  padding: 0;
+  margin: 0;
   align-items: center;
 }
 
 .chat-list-pane.v3-braun .sidebar-body .brand-lockup {
-  gap: 10px;
+  gap: 14px;
+  align-items: center;
+  /* 保留基础右移，侧栏场景不再清零 */
+  margin: 0 0 0 8px;
+  padding: 0;
 }
 
 .chat-list-pane.v3-braun .sidebar-body .search-row {

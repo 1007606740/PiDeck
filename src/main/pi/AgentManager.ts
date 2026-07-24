@@ -25,7 +25,6 @@ import { extractMessageText } from "./messageContent";
 import { mergeHistoryWithPreservedMessages } from "./historyMessages";
 import {
 	assertResendRootEntry,
-	collectDescendantEntryIds,
 	findLastUserMessageLine,
 	takeActiveEntryId,
 } from "./sessionEntryIds";
@@ -2399,44 +2398,60 @@ export class AgentManager {
 				entry = fallback.entry;
 				assertResendRootEntry(entry, msg.text, (content) => this.extractText(content));
 			}
+
+			// 兜底验证：确保定位到的 entry 是文件中最后一条同文本 user 消息。
+			// entryId 错位时（如 get_entries 与 get_messages 排列不一致）可能匹配到
+			// 更早的重复文案，误删不该删的历史内容。
+			// 纯文本消息用 findLastUserMessageLine 做二次校验；图片消息（text="[图片]"）不走此路径。
+			if (msg.text !== "[图片]") {
+				const lastMatch = findLastUserMessageLine(lines, msg.text, (content) =>
+					this.extractText(content),
+				);
+				if (lastMatch && lastMatch.lineIndex !== lineIndex) {
+					void this.appLogger?.warn("agent", "Prepare resend: entryId points to non-last duplicate, correcting", {
+						agentId,
+						messageId,
+						originalLine: lineIndex,
+						correctedLine: lastMatch.lineIndex,
+						originalEntryId: (entry as any)?.id?.slice(0, 12),
+						correctedEntryId: (lastMatch.entry as any)?.id?.slice(0, 12),
+					});
+					lineIndex = lastMatch.lineIndex;
+					entry = lastMatch.entry;
+					assertResendRootEntry(entry, msg.text, (content) => this.extractText(content));
+				}
+			}
+
 			const rootEntryId = typeof (entry as any)?.id === "string" ? String((entry as any).id) : undefined;
 			if (!rootEntryId) throw new Error("User message entryId missing");
-
-			// 只收集该用户消息及其后代（assistant/tool 等），保留 root 之前的全部历史。
-			const removeIds = collectDescendantEntryIds(lines, rootEntryId);
+			const rootParentId = (entry as any)?.parentId;
 
 			await this.backupSessionFile(sessionPath);
 
-			for (let i = 0; i < lines.length; i++) {
-				const line = lines[i]?.trim();
-				if (!line) continue;
-				try {
-					const parsed = JSON.parse(line) as { id?: string; type?: string };
-					if (!parsed?.id || parsed.type === "deleted") continue;
-					if (!removeIds.has(parsed.id)) continue;
-					lines[i] = JSON.stringify({
-						type: "deleted",
-						originalEntryId: parsed.id,
-						ts: Date.now(),
-						reason: "resend-truncate",
-					});
-				} catch {
-					// 跳过无法解析的行
+			// 只删该用户消息条目本身；它的直系子节点（若有）通过 re-parenting 指向父节点，
+			// 避免 orphan 导致 pi 丢弃整个后代分支。
+			// 这样之前的 assistant 回复内容得以保留，重发后看起来就像原地替换了失败消息。
+			if (rootEntryId && rootParentId !== undefined) {
+				for (let i = 0; i < lines.length; i++) {
+					if (i === lineIndex) continue;
+					const childLine = lines[i]?.trim();
+					if (!childLine) continue;
+					try {
+						const child = JSON.parse(childLine);
+						if (child.parentId === rootEntryId) {
+							child.parentId = rootParentId;
+							lines[i] = JSON.stringify(child);
+						}
+					} catch { /* 跳过无法解析的行 */ }
 				}
 			}
 
-			// 兜底：若 entry 定位到了行但 id 集合异常，至少截掉该行本身。
-			if (lineIndex >= 0 && lineIndex < lines.length) {
-				const current = lines[lineIndex]?.trim();
-				if (current && !current.includes('"type":"deleted"')) {
-					lines[lineIndex] = JSON.stringify({
-						type: "deleted",
-						originalEntryId: rootEntryId,
-						ts: Date.now(),
-						reason: "resend-truncate",
-					});
-				}
-			}
+			lines[lineIndex] = JSON.stringify({
+				type: "deleted",
+				originalEntryId: rootEntryId,
+				ts: Date.now(),
+				reason: "resend-truncate",
+			});
 
 			await writeFile(sessionHostPath, lines.join("\n"), "utf8");
 
@@ -2469,7 +2484,7 @@ export class AgentManager {
 			void this.appLogger?.info("agent", "Prepare resend completed", {
 				agentId,
 				messageId,
-				removed: removeIds.size,
+				removed: 1,
 				elapsedMs: Date.now() - startTime,
 			});
 

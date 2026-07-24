@@ -477,11 +477,12 @@ function ConfigModalContent(props: ConfigModalProps) {
 				}
 			}
 
-			if (refreshed > 0 && failed === 0) {
-				showToast(t("config.modelsRefreshed", { count: refreshed }));
-			} else if (refreshed > 0) {
-				showToast(t("config.modelsRefreshedPartial", { refreshed, failed }));
-			}
+			// pi 官方尚未支持 reload_config RPC，刷新实际为 no-op，先注释提示避免误导
+			// if (refreshed > 0 && failed === 0) {
+			// 	showToast(t("config.modelsRefreshed", { count: refreshed }));
+			// } else if (refreshed > 0) {
+			// 	showToast(t("config.modelsRefreshedPartial", { refreshed, failed }));
+			// }
 		} catch {
 			// 获取 agent 列表失败时静默忽略，模型配置已保存，下次启动 agent 生效
 		}
@@ -873,7 +874,8 @@ function ConfigModalContent(props: ConfigModalProps) {
 		await loadConfig("models");
 
 		// 保存后自动刷新所有运行中的 Agent，使模型配置实时生效
-		void refreshRunningAgents();
+		// pi 官方尚未支持，先注释
+		// void refreshRunningAgents();
 	};
 
 	// ── Auth 操作 ────────────────────────────────────────
@@ -994,7 +996,8 @@ function ConfigModalContent(props: ConfigModalProps) {
 		if (isModelsFile) {
 			await loadConfig("models");
 			// Raw 保存也触发模型刷新，确保运行中的 Agent 实时生效
-			void refreshRunningAgents();
+			// pi 官方尚未支持，先注释
+			// void refreshRunningAgents();
 		} else if (rawFileName === "auth.json") await loadConfig("auth");
 		else if (rawFileName === "trust.json") await loadConfig("trust");
 		else await loadConfig("settings");

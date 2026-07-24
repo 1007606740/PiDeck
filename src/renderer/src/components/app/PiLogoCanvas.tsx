@@ -33,7 +33,7 @@ const COLORS: Record<ColorKey, string> = {
 	flash: "#fff5b4",
 	white: "#ffffff",
 	ink: "#09090B",
-	// 与侧栏 LogoMark / --color-logo-green 对齐
+	// 可选品牌绿（侧栏默认不用；保留给其他场景）
 	logoGreen: "#14b814",
 };
 
@@ -102,6 +102,12 @@ const LOGO_TIMING = {
 /** 定格后的 pi 几何（y:x） */
 const FINAL_LOGO = ["3:2", "3:3", "3:4", "4:2", "4:4", "5:2", "5:3", "5:5", "6:2", "6:5"];
 
+/**
+ * 定格 logo 在 8×9 棋盘上的内容包围盒（不含四周空格）。
+ * 侧栏只画这块，避免整块棋盘空白把元素撑高、视觉下沉。
+ */
+const FINAL_LOGO_BOUNDS = { minX: 2, maxX: 5, minY: 3, maxY: 6 } as const;
+
 function toCellKey(y: number, x: number) {
 	return `${y}:${x}`;
 }
@@ -109,6 +115,25 @@ function toCellKey(y: number, x: number) {
 function parseCellKey(key: string) {
 	const [y, x] = key.split(":").map(Number);
 	return { y, x };
+}
+
+/** 计算当前有色块的包围盒；空棋盘回退到定格 logo 区域，避免画布尺寸跳变。 */
+function getCellsBounds(cells: Cells): { minX: number; maxX: number; minY: number; maxY: number } {
+	let minX = Infinity;
+	let maxX = -Infinity;
+	let minY = Infinity;
+	let maxY = -Infinity;
+	for (const key of Object.keys(cells)) {
+		const { y, x } = parseCellKey(key);
+		if (x < minX) minX = x;
+		if (x > maxX) maxX = x;
+		if (y < minY) minY = y;
+		if (y > maxY) maxY = y;
+	}
+	if (!Number.isFinite(minX)) {
+		return { ...FINAL_LOGO_BOUNDS };
+	}
+	return { minX, maxX, minY, maxY };
 }
 
 function easeOutCubic(t: number) {
@@ -123,12 +148,12 @@ function isLightTheme() {
 	return document.documentElement.getAttribute("data-theme") !== "dark";
 }
 
-/** 定格色：浅色主题墨黑 / 深色主题白（动画过程仍用彩色 tetromino） */
+/** 定格色：浅色墨黑 / 深色白（动画过程仍用彩色 tetromino） */
 function settledLogoColor(): ColorKey {
 	return isLightTheme() ? "ink" : "white";
 }
 
-/** 字标色（若再启用右侧 PiDeck 字标时用） */
+/** 字标色：与定格 logo 一致，浅色墨黑 / 深色白，避免五彩渐变抢戏 */
 function wordmarkColor(): ColorKey {
 	return isLightTheme() ? "ink" : "white";
 }
@@ -219,8 +244,14 @@ function paintCells(canvas: HTMLCanvasElement, cells: Cells, cssSize: number) {
 	if (!ctx) return;
 
 	const dpr = window.devicePixelRatio || 1;
+	// 只按有色块包围盒绘制，不保留 8×9 棋盘空边；输出固定为正方形 size×size。
+	const bounds = getCellsBounds(cells);
+	const cols = Math.max(1, bounds.maxX - bounds.minX + 1);
+	const rows = Math.max(1, bounds.maxY - bounds.minY + 1);
+	// 取行列较大边做格子尺度，保证 π 图形完整且不变形地居中在正方形里。
+	const grid = Math.max(cols, rows);
 	const cssW = cssSize;
-	const cssH = (cssSize / BOARD_W) * BOARD_H;
+	const cssH = cssSize;
 	const bitmapW = Math.max(1, Math.round(cssW * dpr));
 	const bitmapH = Math.max(1, Math.round(cssH * dpr));
 
@@ -231,10 +262,13 @@ function paintCells(canvas: HTMLCanvasElement, cells: Cells, cssSize: number) {
 	canvas.style.width = `${cssW}px`;
 	canvas.style.height = `${cssH}px`;
 
-	const cellW = bitmapW / BOARD_W;
-	const cellH = bitmapH / BOARD_H;
-	const xLines = Array.from({ length: BOARD_W + 1 }, (_, i) => Math.round(i * cellW));
-	const yLines = Array.from({ length: BOARD_H + 1 }, (_, i) => Math.round(i * cellH));
+	const cellW = bitmapW / grid;
+	const cellH = bitmapH / grid;
+	// 包围盒在正方形内居中，避免裁切后图形贴某一边。
+	const offsetX = Math.round(((grid - cols) * cellW) / 2);
+	const offsetY = Math.round(((grid - rows) * cellH) / 2);
+	const xLines = Array.from({ length: cols + 1 }, (_, i) => Math.round(offsetX + i * cellW));
+	const yLines = Array.from({ length: rows + 1 }, (_, i) => Math.round(offsetY + i * cellH));
 
 	const colorAt = (y: number, x: number) => cells[toCellKey(y, x)];
 
@@ -242,11 +276,14 @@ function paintCells(canvas: HTMLCanvasElement, cells: Cells, cssSize: number) {
 
 	for (const [position, color] of Object.entries(cells)) {
 		const { y, x } = parseCellKey(position);
-		if (y < 0 || y >= BOARD_H || x < 0 || x >= BOARD_W) continue;
-		const left = xLines[x];
-		const top = yLines[y];
-		const right = xLines[x + 1];
-		const bottom = yLines[y + 1];
+		// 仅绘制包围盒内格子，动画过程中棋盘外空行不再占视觉高度。
+		if (x < bounds.minX || x > bounds.maxX || y < bounds.minY || y > bounds.maxY) continue;
+		const localX = x - bounds.minX;
+		const localY = y - bounds.minY;
+		const left = xLines[localX];
+		const top = yLines[localY];
+		const right = xLines[localX + 1];
+		const bottom = yLines[localY + 1];
 		drawBlock(ctx, left, top, right - left, bottom - top, color, {
 			top: colorAt(y - 1, x),
 			right: colorAt(y, x + 1),
@@ -257,24 +294,37 @@ function paintCells(canvas: HTMLCanvasElement, cells: Cells, cssSize: number) {
 }
 
 export type PiLogoCanvasProps = {
-	/** 画布 CSS 宽度（高度按 8:9 棋盘比例） */
+	/** 画布 CSS 边长（正方形：宽=高=size） */
 	size?: number;
 	/** 挂载后是否自动播放一次 intro */
 	autoPlay?: boolean;
 	/** 点击是否重播 */
 	playOnClick?: boolean;
+	/**
+	 * 外部重播令牌：数值变化时强制重播拼装动画。
+	 * 用于 agent 启动/关闭等业务事件反馈；0/undefined 不触发。
+	 */
+	replayToken?: number;
 	className?: string;
 };
 
 /**
  * 官方 pi 风格 canvas logo。
- * 侧栏等处用 size≈32；需要完整动画感可稍大。
+ * 侧栏品牌位：挂载 autoPlay、点击重播、业务事件 via replayToken。
  */
 export function PiLogoCanvas(props: PiLogoCanvasProps) {
 	const size = props.size ?? 32;
 	const canvasRef = useRef<HTMLCanvasElement>(null);
+	/** 是否有一轮动画在跑；保证同一时刻最多一条 paint 轨道 */
 	const busyRef = useRef(false);
-	const cancelRef = useRef({ cancelled: false });
+	/**
+	 * 播放世代号：卸载或作废时递增。
+	 * 旧轮 await 醒来后 gen 不匹配则静默退出，不写 canvas、不改 busy。
+	 */
+	const playGenRef = useRef(0);
+	/** 播放中又来了重播请求：当前轮结束后只再播一次，合并连点/连触发 */
+	const pendingReplayRef = useRef(false);
+	const lastReplayTokenRef = useRef<number | undefined>(undefined);
 
 	const showStatic = useCallback(() => {
 		const canvas = canvasRef.current;
@@ -284,58 +334,73 @@ export function PiLogoCanvas(props: PiLogoCanvasProps) {
 
 	const playIntro = useCallback(async () => {
 		const canvas = canvasRef.current;
-		if (!canvas || busyRef.current) return;
+		if (!canvas) return;
+
 		if (prefersReducedMotion()) {
 			showStatic();
 			return;
 		}
 
+		// 已有播放：不并行开第二轨，合并为 pending，结束后串行补播一次
+		if (busyRef.current) {
+			pendingReplayRef.current = true;
+			return;
+		}
+
+		const gen = playGenRef.current;
 		busyRef.current = true;
-		const run = { cancelled: false };
-		cancelRef.current = run;
+		const isAlive = () => playGenRef.current === gen;
 
 		const frameMs = 1000 / LOGO_FPS;
 		const paint = (cells: Cells) => {
-			if (run.cancelled) return;
+			if (!isAlive()) return;
 			paintCells(canvas, cells, size);
 		};
 
 		const hold = async (cells: Cells, ms: number) => {
 			const frames = Math.max(1, Math.round(ms / frameMs));
 			for (let i = 0; i < frames; i++) {
-				if (run.cancelled) throw new Error("logo-cancelled");
+				if (!isAlive()) return;
 				paint(cells);
-				await sleep(frameMs, run);
+				await sleep(frameMs);
+				if (!isAlive()) return;
 			}
 		};
 
 		try {
 			let settled: Cells = {};
 			await hold(settled, LOGO_TIMING.initialHold);
+			if (!isAlive()) return;
 
 			for (const step of LOGO_SEQUENCE) {
+				if (!isAlive()) return;
 				const piece = step.piece;
 				const startY = piece.startY;
 				const frames = Math.max(Math.round(step.duration / frameMs), 7);
 				for (let i = 0; i < frames; i++) {
-					if (run.cancelled) throw new Error("logo-cancelled");
+					if (!isAlive()) return;
 					const t = easeOutCubic((i + 1) / frames);
 					const x = Math.round(piece.startX + (piece.targetX - piece.startX) * t);
 					const y = Math.round(startY + (piece.targetY - startY) * t);
 					const frame = copyCells(settled);
 					mergePiece(frame, piece, x, y);
 					paint(frame);
-					await sleep(frameMs, run);
+					await sleep(frameMs);
+					if (!isAlive()) return;
 				}
 				mergePiece(settled, piece, piece.targetX, piece.targetY);
 				paint(settled);
-				await sleep(35, run);
+				await sleep(35);
+				if (!isAlive()) return;
 				if (step.holdAfter > 0) await hold(settled, step.holdAfter);
 			}
+
+			if (!isAlive()) return;
 
 			// 消行闪烁 → 其余块下沉定格为 monochrome pi
 			const finalColor = settledLogoColor();
 			for (let i = 0; i < LOGO_TIMING.clearFlashCount; i++) {
+				if (!isAlive()) return;
 				const flash = i % 2 === 0;
 				const cells = copyCells(settled);
 				for (const key of Object.keys(cells)) {
@@ -347,20 +412,32 @@ export function PiLogoCanvas(props: PiLogoCanvasProps) {
 				await hold(cells, LOGO_TIMING.clearFlashStep);
 			}
 
+			if (!isAlive()) return;
+
 			const floating: Cells = {};
 			for (const [position] of Object.entries(settled)) {
 				if (parseCellKey(position).y !== CLEAR_ROW) floating[position] = finalColor;
 			}
 			await hold(floating, LOGO_TIMING.postClearHold);
+			if (!isAlive()) return;
 
 			// 官方会再下移一行；侧栏定格直接用 FINAL_LOGO，形状更稳
 			await hold(finalLogoCells(finalColor), LOGO_TIMING.postDropHold);
+			if (!isAlive()) return;
 			paint(finalLogoCells(finalColor));
-		} catch {
-			// cancelled
 		} finally {
-			if (!run.cancelled) showStatic();
+			// 只有本世代才收尾；卸载递增 gen 后旧轮不得清 busy / 盖图 / 补播
+			if (!isAlive()) return;
+			showStatic();
 			busyRef.current = false;
+			if (pendingReplayRef.current) {
+				pendingReplayRef.current = false;
+				// 微任务排队，避免在 finally 栈里同步重入
+				void Promise.resolve().then(() => {
+					if (playGenRef.current !== gen) return;
+					void playIntro();
+				});
+			}
 		}
 	}, [showStatic, size]);
 
@@ -371,6 +448,7 @@ export function PiLogoCanvas(props: PiLogoCanvasProps) {
 		}
 
 		const onTheme = () => {
+			// 播放中不抢画布，等本轮结束后的 showStatic 会用新主题色
 			if (!busyRef.current) showStatic();
 		};
 		// PiDeck 主题切换会改 data-theme
@@ -378,14 +456,27 @@ export function PiLogoCanvas(props: PiLogoCanvasProps) {
 		observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
 		return () => {
-			cancelRef.current.cancelled = true;
+			// 卸载：作废当前世代，阻止后续 paint / pending 补播
+			playGenRef.current += 1;
+			busyRef.current = false;
+			pendingReplayRef.current = false;
 			observer.disconnect();
 		};
 	}, [playIntro, props.autoPlay, showStatic]);
 
+	// agent 启停等外部事件通过递增 replayToken 触发；0/undefined 初始值不触发，避免与 autoPlay 叠播。
+	useEffect(() => {
+		const token = props.replayToken;
+		if (token == null || token === 0) return;
+		if (lastReplayTokenRef.current === token) return;
+		lastReplayTokenRef.current = token;
+		// 播放中则合并 pending，播完再来一次；空闲则立即开播——不并行双轨
+		void playIntro();
+	}, [playIntro, props.replayToken]);
+
 	const handleActivate = () => {
 		if (props.playOnClick === false) return;
-		if (busyRef.current) return;
+		// 点击与业务事件同一套串行队列，不并行
 		void playIntro();
 	};
 

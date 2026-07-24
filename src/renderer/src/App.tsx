@@ -489,6 +489,8 @@ export function App() {
   const [dragOverProjectId, setDragOverProjectId] = useState<string>();
   const [agents, setAgents] = useState<AgentTab[]>([]);
   const [pendingAgents, setPendingAgents] = useState<PendingAgentTab[]>([]);
+  /** 侧栏 π logo 重播令牌：agent 启动（含历史会话）/关闭时递增，驱动 BrandLockup 动画 */
+  const [brandLogoReplayToken, setBrandLogoReplayToken] = useState(0);
   const [activeProjectId, setActiveProjectId] = useState<string>();
   const activeProjectIdRef = useRef<string | undefined>(activeProjectId);
   activeProjectIdRef.current = activeProjectId;
@@ -1700,12 +1702,38 @@ export function App() {
     setMultiSelectOpen(false);
   }, [activeMessages, renderedRuns]);
 
-  const lastUserMessageId = useMemo(() => {
+
+  /**
+   * 判断用户消息是否可重发：仅当该消息为最后一条用户消息，且其后的 assistant 响应
+   * 被中止（系统提示）或执行失败（error 消息）时才显示重发按钮。
+   * 正常完成的 assistant 响应不应触发重发。
+   */
+  const resendableMessageIds = useMemo(() => {
+    const ids = new Set<string>();
     for (let i = activeMessages.length - 1; i >= 0; i--) {
-      if (activeMessages[i].role === "user") return activeMessages[i].id;
+      const msg = activeMessages[i];
+      if (msg.role !== "user") continue;
+      // 从最后一条用户消息开始，检查其后最近的消息状态
+      let hasAbortOrError = false;
+      for (let j = i + 1; j < activeMessages.length; j++) {
+        const next = activeMessages[j];
+        if (next.role === "user") break; // 下一条用户消息，不属本轮
+        if (next.role === "error") { hasAbortOrError = true; break; }
+        if (next.role === "system") {
+          const meta = next.meta as Record<string, unknown> | undefined;
+          if (meta?.i18nKey === "app.abortRequested") { hasAbortOrError = true; break; }
+        }
+        if (next.role === "assistant" && next.text?.trim()) {
+          // 存在正常的 assistant 回复 → 不显示重发
+          break;
+        }
+      }
+      if (hasAbortOrError) ids.add(msg.id);
+      break; // 只检查最后一条用户消息
     }
-    return undefined;
+    return ids;
   }, [activeMessages]);
+
   // 从 activeUiRequest 提取正在进行的交互式请求（select/confirm/input/editor）
   // 这是 ask_question 在 pi RPC 模式下的表现方式：pi 通过 extension_ui_request 将
   // 等待用户回答的对话框发送到桌面端，包含 requestId、title、options 等完整信息。
@@ -2863,6 +2891,11 @@ export function App() {
     }
   }, [displayAgents, activeAgentId, modifiedFiles, messagesByAgent]);
 
+  /** 侧栏 π logo 业务反馈：新建/历史会话启动/关闭 agent 时重播拼装动画。 */
+  const triggerBrandLogoReplay = useCallback(() => {
+    setBrandLogoReplayToken((token) => token + 1);
+  }, []);
+
   // 已删除内置 goal 完成检测。
 
   // 监听用户发送消息的编辑事件,将消息填入输入框
@@ -4017,6 +4050,8 @@ export function App() {
       autoScrollRef.current = true;
       return existing;
     }
+    // 新建 agent / 从历史会话恢复：点选当下就给品牌 logo 反馈，不必等进程真正 ready。
+    triggerBrandLogoReplay();
     const previousAgentId = activeAgentId;
     const pendingTab: PendingAgentTab = {
       id: `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -4350,6 +4385,8 @@ export function App() {
 
   async function closeAgent(agentId: string) {
     if (isPendingAgentId(agentId)) return;
+    // 关闭当下重播 logo，与启动反馈对称。
+    triggerBrandLogoReplay();
     await api.agents.stop(agentId);
   }
 
@@ -5926,8 +5963,8 @@ export function App() {
         <div className="sidebar-body">
           <div className="list-toolbar">
           <div className="app-badge">
-            {/* 像素几何标 + 点阵字标，贴近官方 pi logo 呈现，而非套用像素字体 */}
-            <BrandLockup />
+            {/* 官方 π 标 + 字标；agent 启停时通过 replayToken 重播动画 */}
+            <BrandLockup replayToken={brandLogoReplayToken} />
           </div>
         </div>
         <button
@@ -7057,7 +7094,7 @@ export function App() {
                       onEditMessage={editMessage}
                       onDeleteMessage={deleteMessage}
                       agentRunning={isAgentBusy}
-                      isLastUserMessage={message.id === lastUserMessageId}
+                      showResendButton={resendableMessageIds.has(message.id)}
                       validCommandNames={validCommandNames}
                       validFilePaths={validFilePaths}
                       onEnterMultiSelect={() => setMultiSelectOpen(true)}

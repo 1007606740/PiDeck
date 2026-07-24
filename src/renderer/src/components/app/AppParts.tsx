@@ -1559,15 +1559,26 @@ export function LogoMark() {
 	);
 }
 
-// 官方 pi 风格 canvas logo
+// 官方 pi 风格 canvas logo（侧栏可点击重播）
 export { PiLogoCanvas } from "./PiLogoCanvas";
 
-/** 侧栏品牌：仅 canvas π 标（可点击重播拼装动画） */
-export function BrandLockup() {
+/**
+ * 侧栏品牌 lockup：π 标 + PiDeck 字标，垂直居中平齐。
+ * replayToken 由 App 在 agent 启动/关闭时递增，驱动 logo 重播拼装动画。
+ */
+export function BrandLockup(props: { replayToken?: number } = {}) {
 	return (
 		<div className="brand-lockup" aria-label="PiDeck">
-			{/* 仅 π 标；尺寸 55 与侧栏品牌位匹配 */}
-			<PiLogoCanvas size={55} autoPlay playOnClick />
+			{/* 34px：比字标略大，仍保持侧栏紧凑 */}
+			<PiLogoCanvas
+				size={34}
+				autoPlay
+				playOnClick
+				replayToken={props.replayToken}
+			/>
+			<span className="brand-wordmark" aria-hidden="true">
+				PiDeck
+			</span>
 		</div>
 	);
 }
@@ -3112,8 +3123,8 @@ export const UserBubble = memo(function UserBubble(props: {
 	onResendUserMessage?: (message: ChatMessage) => void;
 	onEditMessage?: (messageId: string, newText: string) => void;
 	onDeleteMessage?: (messageId: string) => void;
-	/** 是否为该 agent 消息列表中的最后一条用户消息，用于控制「重发」按钮的显隐 */
-	isLastUserMessage?: boolean;
+	/** 附件（中止/失败）可重发时显示重发按钮 */
+	showResendButton?: boolean;
 	validCommandNames?: Set<string>;
 	validFilePaths?: Set<string>;
 	/** Agent 正在处理请求或流式输出中时禁用编辑/删除等操作按钮 */
@@ -3266,7 +3277,7 @@ export const UserBubble = memo(function UserBubble(props: {
 						>
 							<Trash size={14} />
 						</button>
-						{props.isLastUserMessage && (
+						{props.showResendButton && (
 							<button
 								className="user-turn-action-btn"
 								onClick={() => props.onResendUserMessage?.(message)}
@@ -3282,7 +3293,7 @@ export const UserBubble = memo(function UserBubble(props: {
 	);
 }, (previous, next) =>
 	sameChatMessageForRender(previous.message, next.message) &&
-	previous.isLastUserMessage === next.isLastUserMessage &&
+	previous.showResendButton === next.showResendButton &&
 	previous.agentRunning === next.agentRunning &&
 	previous.validCommandNames === next.validCommandNames &&
 	previous.validFilePaths === next.validFilePaths,
