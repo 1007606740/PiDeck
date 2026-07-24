@@ -59,7 +59,8 @@ All notable changes to PiDeck are documented here.
   collapsible section.
 - **WSL environment support** (experimental) — Session scanning, file operations, and
   path handling adapted for WSL.
-- **Session summary cache** persists across app restarts for faster sidebar loading.
+- **WSL environment support** — Session scanning, file operations, and path
+  handling adapted for WSL (via @Lopution PR #84).
 
 ### ✨ UX Improvements
 
@@ -129,12 +130,6 @@ All notable changes to PiDeck are documented here.
   hide background card when dialog open, filter out Pi's default ✎ option.
 - **Message CPA_DONE marker cleanup** — Strips `CPA_DONE` from message end.
 - **User message edit** — Edited text backfilled to composer for re-sending.
-
-### 🧪 Experimental
-
-- **WSL environment support** — Session scanning and listing adapted; file operations
-  (rename/delete/copy/exportHtml/readMessages) support WSL paths. ⚠️ **Not fully tested**;
-  Windows mode is unaffected.
 
 ### 🙏 Acknowledgements
 
