@@ -25,6 +25,10 @@ All notable changes to PiDeck are documented here.
   revert / reset / drop via context menu, branch switching, and worktree support.
 - **Git Push / Pull** — Push and Pull buttons in the Changes pane header with full IPC
   pipeline and error notifications.
+- **Customizable Commit Message Prompt** — New Setting `gitCommitMessagePrompt`,
+  a textarea in the Git section, template supports `{diff}` placeholder, Gitmoji mapping.
+- **Git panel relative paths** — Directory group headers now show paths relative to
+  project root instead of absolute file system paths.
 - **XuePrompt Chinese Prompt Store** — Replaced old yao-prompts files with SQLite
   database (~4000 Chinese prompts). Supports 20+ category filters, FTS3 full-text
   search, pagination, and one-click import.
@@ -74,6 +78,8 @@ All notable changes to PiDeck are documented here.
   toggle). HTML files preview in the built-in browser panel.
 - **File diff side-by-side toggle** — Now works reliably in modal mode (key remount +
   keepCurrentModel). Button hidden in drawer mode (container too narrow for split view).
+- **Built-in browser webview stability** — Fixed initial load cancellation (ERR_ABORTED),
+  dom-ready infinite refresh, and webview-not-ready white screen issues.
 - **Browser close/maximize buttons moved to tab bar** — Saves vertical space.
 - **Copy install command button** — Added next to install buttons for manual terminal use.
 - **Session outline & quick action bar** — Floating outline panel with jump-to-message.
@@ -113,6 +119,8 @@ All notable changes to PiDeck are documented here.
 - **Bundled extension disabled/re-enable** — Fixed loss of built-in extensions after
   disable.
 - **Old pi compatibility** — Graceful fallback for `--no-approve` parameter.
+- **Session loading indicator flicker** — Enforce a 200 ms minimum display duration
+  to avoid a brief flash on fast API responses.
 - **Send message auto-scroll** — Scroll to end instead of beginning.
 - **Thinking animation removed** — Unified "responding" animation as default.
 - **Agent idle after agent_end** — Added fallback idle check to avoid stuck animation.
@@ -147,109 +155,6 @@ Special thanks to **微时佬友** for providing the Grok model service used in 
 community testing environment 🎉
 
 ---
-
-## v0.6.6-beta.2 (ongoing — superseded by v0.6.6)
-
-### 🚀 New Features
-
-- **XuePrompt Chinese Prompt Store** — Replaced old yao-prompts files with SQLite database
-  (~4000 Chinese prompts). Supports 20+ category filters, FTS3 full-text search, pagination,
-  and one-click import.
-- **HTML preview uses built-in browser** — Opening an HTML file in the file editor defaults
-  to source view. Clicking the preview button switches to the right-side browser panel with
-  webview rendering, eliminating iframe sandbox restrictions (external CSS/JS now loads).
-- **Skills.sh Community Skill Store** — SkillHub tab switched to CLI registry
-  (skill.xfyun.cn) for search, installing via `npx -g -s <skill> -y` with sort by downloads
-  and installation animations.
-- **Recommended extension packages** — All packages now show copy-install-command buttons,
-  action buttons arranged horizontally, and install status per-package.
-- **Async skill installation** — `npx skills install` runs via `execFile` without blocking
-  the main process UI.
-
-### ✨ UX Improvements
-
-- **Behavior selector moved left of stop button** — Steer/Follow-Up button group on the left,
-  stop button on the right for clearer visual layout.
-- **Composer bottom bar style unified** — `send-behavior-toggle` now uses `composer-bar-btn`
-  style (28px small radius).
-- **Skills/Prompts auto-refresh on local tab** — Switching back from store tab triggers
-  refresh so newly installed items are immediately visible.
-- **Prompt Chinese store shows installed badge immediately** — `installedNames` refreshed
-  after import, no manual refresh needed.
-- **SkillHub auto-updates installed badge** — Correctly marks installed via persisted records
-  even across name ambiguity.
-- **Built-in browser webview stability** — Fixed initial load cancellation (ERR_ABORTED),
-  dom-ready infinite refresh, and webview-not-ready white screen issues.
-- **Browser close/maximize buttons moved to tab bar** — Saves vertical space.
-- **Copy install command button** — Added next to install buttons for manual terminal use.
-
-### 🐛 Bug Fixes
-
-- **Docs site build failure** — VitePress YAML frontmatter `&` was parsed as anchor; wrapped
-  in quotes.
-- **TypeScript CI failure** — Duplicate `setAttachedImages` function in App.tsx.
-- **Monaco editor CSP error** — `loader.config({ monaco })` moved from `useEffect` to module
-  scope to ensure it is called before `<Editor>` mounts, preventing CDN fallback blocked by CSP.
-- **SkillHub search `persistedRef.current is not iterable` crash** — Added `Array.isArray`
-  guard in `loadPersisted()` plus runtime check before `for-of` iteration.
-- **XuePrompt category shows count but no data** — Category field in DB stores original name
-  while frontend passes slugified version; fixed with subquery matching both.
-- **Title bar color mismatch** — Added `background: var(--color-bg-sidebar)` to
-  `.window-controls` to match `.window-drag-layer`.
-- **sql.js ESM loading failure in packaged app** — Fixed WASM path resolution inside
-  asar-unpacked directory.
-
-### 🧪 Experimental
-
-- **WSL environment support** — Session scanning and listing adapted; file operations
-  (rename/delete/copy/exportHtml/readMessages) support WSL paths. ⚠️ **Not fully tested**;
-  Windows mode is unaffected.
-
-### 📝 Remaining
-
-- Full WSL testing and adaptation
-- Additional WSL features (skill management, prompt management, etc.)
-- README screenshots update before release
-
-### 🐛 Bug Fixes
-
-- **TurnRow "Rendered fewer hooks" crash** — Moved `useMemo` before early returns
-  in `TurnRow`, fixing white screen on sending messages.
-- **Stop button invisible during agent response** — Extracted from
-  `hasComposerContent` condition; now always shown when agent is busy.
-- **Historical session not scrolling to bottom** — Added `activeMessages.length`
-  to ResizeObserver deps so observer is created after messages load.
-- **NoSession anonymous agent duplicate in sidebar** — Added `noSession` matching
-  path to `isReplacementForPendingAgent`.
-- **Agent startup status stuck on "starting"** — Fix `setAgents` in `createAgent`
-  to overwrite existing entries when the API returns, preventing stale status.
-- **Session loading indicator flicker** — Enforce a 200 ms minimum display duration
-  to avoid a brief flash on fast API responses.
-- **Git Commit Message Generation** — Replace per-call `pi -p` process with a persistent
-  `pi --mode rpc` daemon, eliminating repeated cold-start overhead. Start with
-  `--no-session --no-tools --no-extensions --no-skills --no-prompt-templates
-  --no-context-files --no-themes --thinking off` for minimal startup cost.
-- **GitService.getStagedDiff maxBuffer** — Fixed `maxBuffer` being too small (5 KB),
-  causing large diffs to silently fail with `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`.
-  Changed to fixed 10 MB.
-- **Dev terminal Chinese garbled** — Auto-run `chcp 65001` on Windows to set UTF-8
-  code page.
-
-### 🚀 New Features
-
-- **Composer redesign (OpenCode style)** — Replaced the top pill-button toolbar
-  with a bottom bar: mode toggle / prompt template / attachment / model name /
-  thinking level (all clickable).
-- **Local packaging** — `npm run compile-exe` for fast portable `.exe` (skip tsc,
-  ASAR no compression). `npm run dist:win -- [format]` supports single-format
-  builds (nsis / portable / zip).
-- **Git Push / Pull** — Add Push and Pull buttons to the Changes pane header,
-  with full IPC pipeline and error notifications.
-- **Customizable Commit Message Prompt** — New Setting `gitCommitMessagePrompt`,
-  a textarea in the Git section of Settings. The template supports `{diff}`
-  placeholder. Default prompt includes Gitmoji mapping.
-- **Git panel relative paths** — Directory group headers now show paths relative to
-  project root instead of absolute file system paths.
 
 ## v0.6.6-beta.1 - 2026-07-22
 
