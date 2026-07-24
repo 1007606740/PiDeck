@@ -166,6 +166,48 @@ function updateReadme(readmePath, newBlock) {
   return true;
 }
 
+function updateDocsSite(data) {
+  const { version, date, majorFeatures, improvements } = data;
+  const filePath = path.join(ROOT, "docs-site", "changelog.md");
+  let content = fs.readFileSync(filePath, "utf8");
+
+  // 去掉旧版 v0.6.6 或 v0.6.6-beta.x 条目（如果有），避免重复
+  content = content.replace(/^## v0\.6\.6(?:-beta\.\d+)?[^\n]*\n[\s\S]*?(?=^## v0\.6\.5)/m, "");
+
+  const lines = content.split("\n");
+
+  // 找到第一个版本号行（v0.6.5 或更早），在其前面插入新条目
+  const firstVersionIdx = lines.findIndex(l => /^##\s+v0/.test(l));
+  if (firstVersionIdx === -1) {
+    console.error("  ⚠️  Could not find version entry in docs-site/changelog.md");
+    return false;
+  }
+
+  // 生成新条目
+  const newEntry = [
+    `## ${version}`,
+    "",
+    `发布时间：${date}`,
+    "",
+  ];
+  for (const feat of majorFeatures.slice(0, 15)) {
+    newEntry.push(`- 🚀 **${stripBold(feat)}**`);
+  }
+  for (const imp of improvements.slice(0, 4)) {
+    newEntry.push(`- ✨ **${stripBold(imp)}**`);
+  }
+  newEntry.push("");
+
+  const newContent = [
+    ...lines.slice(0, firstVersionIdx),
+    ...newEntry,
+    ...lines.slice(firstVersionIdx),
+  ].join("\n");
+
+  fs.writeFileSync(filePath, newContent);
+  return true;
+}
+
 // ── 主流程 ──────────────────────────────────────────────────────────
 
 function main() {
@@ -221,17 +263,19 @@ function main() {
 
   const zhOk = updateReadme(zhReadme, zhBlock);
   const enOk = updateReadme(enReadme, enBlock);
+  const docsOk = updateDocsSite(zhData);
 
   if (zhOk) console.log("  ✅ README.md 已更新");
   if (enOk) console.log("  ✅ README.en.md 已更新");
-  if (!zhOk && !enOk) {
+  if (docsOk) console.log("  ✅ docs-site/changelog.md 已更新");
+  if (!zhOk && !enOk && !docsOk) {
     console.log("  ⚠️  无需更新，或未找到匹配区块");
   }
 
   console.log("");
-  if (zhOk || enOk) {
-    console.log("📋 自动生成的 README 亮点已更新。请手动检查后提交。");
-    console.log("   git diff README.md README.en.md");
+  if (zhOk || enOk || docsOk) {
+    console.log("📋 三处同步完成。请检查后提交：");
+    console.log("   git diff README.md README.en.md docs-site/changelog.md");
   }
 }
 

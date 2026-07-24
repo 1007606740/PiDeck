@@ -305,6 +305,20 @@ export function BrowserPanel(props: {
 		setNavigateKey(moduleState.navigateKey);
 	}, [navigateKey]);
 
+	// 当 BrowserPanel 已 mounted 时，navigateTo 递增 navigateKey 触发此 effect，
+	// 直接调用 loadURL（dom-ready 只首次触发，后续导航需要手动加载）。
+	useEffect(() => {
+		if (navigateKey === 0) return;
+		const wv = webviewRef.current;
+		if (!wv || !webviewReadyRef.current) return;
+		const activeTab = moduleState.tabs.find((t) => t.id === moduleState.activeTabId);
+		if (activeTab) {
+			applyDeviceUserAgent(wv, moduleState.device);
+			wv.loadURL(activeTab.url).catch(() => {});
+		}
+		moduleState.navigateKey = 0;
+	}, [navigateKey, applyDeviceUserAgent]);
+
 	const closeTab = useCallback(
 		(tabId: string, event: React.MouseEvent) => {
 			event.stopPropagation();
@@ -460,7 +474,7 @@ export function BrowserPanel(props: {
 			)}
 
 			<div className="browser-webview-stage">
-				<webview ref={(el) => { (webviewRef as React.MutableRefObject<any>).current = el; if (el) el.setAttribute("allowfileaccess", "true"); }} className="browser-webview" src={moduleState.navigateKey > 0 ? "about:blank" : initialTab.url} allowpopups={true} />
+				<webview ref={(el) => { (webviewRef as React.MutableRefObject<any>).current = el; if (el) el.setAttribute("allowfileaccess", "true"); }} className="browser-webview" src={moduleState.navigateKey > 0 ? "about:blank" : initialTab.url} allowpopups="true" />
 			</div>
 		</div>
 	);
