@@ -86,19 +86,18 @@ function getInitialActiveTab(): TabEntry {
  * 如果没有标签页则创建一个，然后切换到该标签页并加载 URL。
  * 通过递增 navigateKey 触发 BrowserPanel 的 useEffect 执行导航。
  */
+/** 待消费的外部导航 URL，BrowserPanel 通过轮询检测。 */
+let pendingNavigateUrl: string | null = null;
+
 export function navigateTo(url: string) {
 	ensureInitialTab();
-	if (moduleState.activeTabId) {
-		const activeTab = moduleState.tabs.find((t) => t.id === moduleState.activeTabId);
-		if (activeTab) {
-			activeTab.url = url;
-		}
-	} else {
-		const id = genTabId();
-		moduleState.tabs.push({ id, title: "PiDeck", url });
-		moduleState.activeTabId = id;
-	}
+	// 每次外部导航创建新 tab，避免多个链接复用同一个 tab
+	const id = genTabId();
+	moduleState.tabs.push({ id, title: "PiDeck", url });
+	moduleState.activeTabId = id;
 	moduleState.navigateKey += 1;
+	// 直接设 pendingUrl，轮询会立即检测到，无需等 re-render
+	pendingNavigateUrl = url;
 }
 
 type WebviewEvent<T extends string> = T extends "did-navigate"
@@ -191,20 +190,8 @@ export function BrowserPanel(props: {
 		}
 		applyDeviceUserAgent(wv, moduleState.device);
 
-		let navigatedOnce = false;
 		const onDomReady = () => {
 			webviewReadyRef.current = true;
-			// 仅首次 dom-ready 时消费外部导航（navigateTo 调用），
-			// 避免后续每次页面加载都触发 loadURL 导致无限刷新。
-			if (!navigatedOnce && moduleState.navigateKey > 0) {
-				navigatedOnce = true;
-				moduleState.navigateKey = 0;
-				const activeTab = moduleState.tabs.find((t) => t.id === moduleState.activeTabId);
-				if (activeTab) {
-					applyDeviceUserAgent(wv, moduleState.device);
-					wv.loadURL(activeTab.url).catch(() => {});
-				}
-			}
 		};
 		wv.addEventListener("dom-ready", onDomReady);
 
@@ -299,25 +286,26 @@ export function BrowserPanel(props: {
 
 	// webview 是否已触发 dom-ready，用于延迟外部导航直到 webview 就绪。
 	const webviewReadyRef = useRef(false);
-	const [navigateKey, setNavigateKey] = useState(0);
-	useEffect(() => {
-		if (moduleState.navigateKey === 0) return;
-		setNavigateKey(moduleState.navigateKey);
-	}, [navigateKey]);
 
-	// 当 BrowserPanel 已 mounted 时，navigateTo 递增 navigateKey 触发此 effect，
-	// 直接调用 loadURL（dom-ready 只首次触发，后续导航需要手动加载）。
+	// 轮询检测 navigateTo 设置的 pendingNavigateUrl（module 变量不触发 React 重渲染）
 	useEffect(() => {
-		if (navigateKey === 0) return;
-		const wv = webviewRef.current;
-		if (!wv || !webviewReadyRef.current) return;
-		const activeTab = moduleState.tabs.find((t) => t.id === moduleState.activeTabId);
-		if (activeTab) {
-			applyDeviceUserAgent(wv, moduleState.device);
-			wv.loadURL(activeTab.url).catch(() => {});
-		}
-		moduleState.navigateKey = 0;
-	}, [navigateKey, applyDeviceUserAgent]);
+		const interval = window.setInterval(() => {
+			if (!pendingNavigateUrl) return;
+			const url = pendingNavigateUrl;
+			pendingNavigateUrl = null;
+			moduleState.navigateKey = 0;
+			const wv = webviewRef.current;
+			if (!wv) return;
+			const activeTab = moduleState.tabs.find((t) => t.id === moduleState.activeTabId);
+			if (activeTab) {
+				applyDeviceUserAgent(wv, moduleState.device);
+				setTabs([...moduleState.tabs]);
+				setActiveTabId(moduleState.activeTabId);
+				wv.loadURL(url).catch(() => {});
+			}
+		}, 50);
+		return () => window.clearInterval(interval);
+	}, [applyDeviceUserAgent]);
 
 	const closeTab = useCallback(
 		(tabId: string, event: React.MouseEvent) => {
@@ -474,7 +462,7 @@ export function BrowserPanel(props: {
 			)}
 
 			<div className="browser-webview-stage">
-				<webview ref={(el) => { (webviewRef as React.MutableRefObject<any>).current = el; if (el) el.setAttribute("allowfileaccess", "true"); }} className="browser-webview" src={moduleState.navigateKey > 0 ? "about:blank" : initialTab.url} allowpopups="true" />
+				<webview ref={(el) => { (webviewRef as React.MutableRefObject<any>).current = el; if (el) el.setAttribute("allowfileaccess", "true"); }} className="browser-webview" src={moduleState.navigateKey > 0 ? "about:blank" : initialTab.url} allowpopups={"true" as any} />
 			</div>
 		</div>
 	);
