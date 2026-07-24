@@ -18,9 +18,9 @@
 - **Git 源代码管理（大重构）** — VS Code 风格 3 Tab 面板（变更/历史/比较）、AI 提交摘要生成、
   Git 图形化提交历史（彩色泳道）、Cherry-pick/Revert/Reset/Drop、分支切换、Worktree 支持。
 - **Git Push / Pull** — 变更面板标题栏新增 Push 和 Pull 按钮，完整 IPC 链路及错误通知。
-- **XuePrompt 中文提示词精选** — 取代旧 yao-prompts 文件，SQLite 存储 ~4000 条中文提示词，
+- **Prompt 中文提示词精选** — 取代旧 yao-prompts 文件，SQLite 存储 ~4000 条中文提示词，
   支持 20+ 分类筛选、FTS3 全文搜索、分页浏览、一键导入。
-- **Skills.sh 社区技能商店** — SkillHub 标签切换到 CLI 注册中心，支持安装量排序和安装中动画。
+- **Skills.sh 社区技能商店** — 切换到 CLI 注册中心，支持安装量排序和安装中动画。
 - **HTML 预览改为内置浏览器** — 文件编辑器打开 HTML 默认显示源码，点击预览按钮切换到右侧
   浏览器面板用 webview 渲染，不再受 iframe sandbox 限制。
 - **Composer 重新设计（OpenCode 风格）** — 顶部圆框按钮组移至底部操作栏：模式切换/Prompt/
@@ -67,8 +67,8 @@
 - **匿名 agent 侧栏重复** — 增加 `noSession` 匹配路径。
 - **Agent 启动状态卡在 "starting"** — 修复 `setAgents` 覆盖逻辑。
 - **同会话重发截断错误** — 修复为只删除最后一条消息的后代条目，而非全部删除之前的内容。
-- **SkillHub 搜索崩溃** — `loadPersisted()` 增加 `Array.isArray` 防御。
-- **XuePrompt 分类无数据** — 修复 slug 和原始名匹配问题。
+- **Skills.sh 搜索崩溃** — `loadPersisted()` 增加 `Array.isArray` 防御。
+- **Prompt 分类无数据** — 修复 slug 和原始名匹配问题。
 - **标题栏色差** — 统一 `.window-controls` 背景色。
 - **sql.js 打包后加载失败** — 修复 WASM 路径解析。
 - **GitService.getStagedDiff maxBuffer 过小** — 从 5KB 提升到 10MB。

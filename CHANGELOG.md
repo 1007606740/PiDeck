@@ -29,10 +29,10 @@ All notable changes to PiDeck are documented here.
   a textarea in the Git section, template supports `{diff}` placeholder, Gitmoji mapping.
 - **Git panel relative paths** — Directory group headers now show paths relative to
   project root instead of absolute file system paths.
-- **XuePrompt Chinese Prompt Store** — Replaced old yao-prompts files with SQLite
+- **Chinese Prompt Store (XuePrompt)** — Replaced old yao-prompts files with SQLite
   database (~4000 Chinese prompts). Supports 20+ category filters, FTS3 full-text
   search, pagination, and one-click import.
-- **Skills.sh Community Skill Store** — SkillHub tab switched to CLI registry
+- **Skills.sh Community Skill Store** — Switched to CLI registry
   (skill.xfyun.cn) for search, installing via `npx -g -s <skill> -y` with sort by
   downloads and installation animations.
 - **HTML preview uses built-in browser** — Opening an HTML file defaults to source view.
@@ -105,8 +105,8 @@ All notable changes to PiDeck are documented here.
   existing entries when API returns.
 - **Same-session resend truncation** — Fixed to delete only the last message's
   descendant entries, not everything before it.
-- **SkillHub search crash** — Added `Array.isArray` guard in `loadPersisted()`.
-- **XuePrompt category returns no data** — DB category matching fixed between slug
+- **Skills.sh search crash** — Added `Array.isArray` guard in `loadPersisted()`.
+- **Prompt category returns no data** — DB category matching fixed between slug
   and original name.
 - **Title bar color mismatch** — Unified `background` across `.window-controls`.
 - **sql.js ESM loading failure in packaged app** — Fixed WASM path resolution.
