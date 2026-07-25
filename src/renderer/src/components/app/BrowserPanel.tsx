@@ -90,8 +90,6 @@ function getInitialActiveTab(): TabEntry {
 let pendingNavigateUrl: string | null = null;
 
 export function navigateTo(url: string) {
-	// 清除旧 tab，避免已有默认 tab 时产生两个 tab
-	moduleState.tabs = [];
 	// 每次外部导航创建新 tab，避免多个链接复用同一个 tab
 	const id = genTabId();
 	moduleState.tabs.push({ id, title: "PiDeck", url });
