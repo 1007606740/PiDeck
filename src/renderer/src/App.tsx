@@ -6877,7 +6877,23 @@ export function App() {
                                 btn.classList.add("is-copied");
                                 window.setTimeout(() => btn.classList.remove("is-copied"), 900);
                               } catch {
-                                showNotice(t("copy.failed"), 2000, "error");
+                                // navigator.clipboard.writeText 在 Electron 中有时抛异常但实际已写入
+                                // 尝试 fallback 复制
+                                try {
+                                  const textarea = document.createElement("textarea");
+                                  textarea.value = appNotice.message;
+                                  textarea.style.position = "fixed";
+                                  textarea.style.opacity = "0";
+                                  document.body.appendChild(textarea);
+                                  textarea.select();
+                                  document.execCommand("copy");
+                                  document.body.removeChild(textarea);
+                                  const btn = event.currentTarget;
+                                  btn.classList.add("is-copied");
+                                  window.setTimeout(() => btn.classList.remove("is-copied"), 900);
+                                } catch {
+                                  showNotice(t("copy.failed"), 2000, "error");
+                                }
                               }
                             }}
                           >

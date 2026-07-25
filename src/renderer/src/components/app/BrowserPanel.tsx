@@ -296,6 +296,8 @@ export function BrowserPanel(props: {
 			moduleState.navigateKey = 0;
 			const wv = webviewRef.current;
 			if (!wv) return;
+			// 如果 webview 正在加载中，跳过本次轮询，避免并发 loadURL 导致 ERR_ABORTED
+			if (wv.isLoading && wv.isLoading()) return;
 			const activeTab = moduleState.tabs.find((t) => t.id === moduleState.activeTabId);
 			if (activeTab) {
 				applyDeviceUserAgent(wv, moduleState.device);
