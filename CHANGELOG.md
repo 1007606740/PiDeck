@@ -158,20 +158,6 @@ All notable changes to PiDeck are documented here.
 - **429 error not shown in chat** — Auto-retry failure now sets agent status to
   error and appends a visible error message.
 
-### 🐛 Terminal Fixes
-
-- **Terminal always opened pwsh.exe** — `spawnShell` computed the priority-sorted
-  candidate list but was iterating over the original unsorted array, so the
-  preferred shell was always ignored.
-- **Shell dropdown clipped by overflow:hidden** — `.terminal-tabs` had
-  `overflow: hidden` which clipped the absolutely-positioned shell menu above it.
-- **Object destroyed crash on terminal data after window close** — The emit
-  callback lacked a guard against destroyed `webContents`.
-- **Stop button not cancelling on first click** — Added `recentlyAborted` set to
-  discard delayed pi events after abort.
-- **429 error not shown in chat** — Auto-retry failure now sets agent status to
-  error and appends a visible error message.
-
 ### 🙏 Acknowledgements
 
 Thanks to all contributors for their PRs, issues, and feedback:
