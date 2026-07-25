@@ -149,6 +149,8 @@ Thanks to all contributors for their PRs, issues, and feedback:
 Special thanks to **微时佬友** for providing the Grok model service used in our
 community testing environment 🎉
 
+> 💬 **Join our QQ group for feedback & discussion: 1026218644**
+
 ---
 
 ## v0.6.7 - 2026-07-27
