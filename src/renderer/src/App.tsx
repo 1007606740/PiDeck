@@ -98,7 +98,7 @@ import {
   pruneTerminalDockState,
   setTerminalDockCollapsed,
   setTerminalDockOpen,
-  type TerminalDockStateByAgent,
+  type TerminalDockStateByProject,
 } from "./terminalDockState";
 import { useMessagePagination } from "./hooks/useMessagePagination";
 import { useSessionLoader } from "./hooks/useSessionLoader";
@@ -1288,14 +1288,14 @@ export function App() {
   const [chatLayoutHeight, setChatLayoutHeight] = useState(() => window.innerHeight);
   const [composerAutoHeight, setComposerAutoHeight] =
     useState(COMPOSER_MIN_HEIGHT);
-  const [terminalDockStateByAgent, setTerminalDockStateByAgent] =
-    useState<TerminalDockStateByAgent>({});
+  const [terminalDockStateByProject, setTerminalDockStateByProject] =
+    useState<TerminalDockStateByProject>({});
   const [terminalHeightByAgent, setTerminalHeightByAgent] = useState<
     Record<string, number>
   >({});
   const [terminalDockMounted, setTerminalDockMounted] = useState(false);
   const [terminalDockClosing, setTerminalDockClosing] = useState(false);
-  const [terminalDockAgentId, setTerminalDockAgentId] = useState<string>();
+  const [terminalDockProjectId, setTerminalDockProjectId] = useState<string>();
   const terminalDockCloseTimerRef = useRef<number | null>(null);
   const [listCollapsed, setListCollapsed] = useState(false);
   const [drawerCollapsed, setDrawerCollapsed] = useState(false);
@@ -1545,30 +1545,30 @@ export function App() {
     if (targetAgentId) setAttachedImagesForAgent(targetAgentId, value);
   }
 
-  const terminalDockState = activeAgentId
-    ? terminalDockStateByAgent[activeAgentId]
+  const terminalDockState = activeProjectId
+    ? terminalDockStateByProject[activeProjectId]
     : undefined;
   // 终端打开/折叠状态按 agent 隔离,避免切换项目/agent 后丢失当前终端 UI 状态。
   const terminalOpen = Boolean(terminalDockState?.open);
   const terminalCollapsed = Boolean(terminalDockState?.collapsed);
   const terminalDockVisible =
-    terminalDockMounted && terminalDockAgentId === activeAgentId;
+    terminalDockMounted && terminalDockProjectId === activeProjectId;
 
   // 轨道尺寸只在开关时变更一次，终端本身用 transform 完成合成动画。
   // 关闭时保留组件至动画结束，避免同步销毁 xterm 阻塞第一帧。
   useEffect(() => {
-    if (terminalOpen && activeAgentId) {
+    if (terminalOpen && activeProjectId) {
       if (terminalDockCloseTimerRef.current != null) {
         window.clearTimeout(terminalDockCloseTimerRef.current);
         terminalDockCloseTimerRef.current = null;
       }
-      setTerminalDockAgentId(activeAgentId);
+      setTerminalDockProjectId(activeProjectId);
       setTerminalDockClosing(false);
       setTerminalDockMounted(true);
       return;
     }
     if (!terminalDockMounted) return;
-    if (terminalDockAgentId !== activeAgentId) {
+    if (terminalDockProjectId !== activeProjectId) {
       setTerminalDockMounted(false);
       return;
     }
@@ -1587,7 +1587,7 @@ export function App() {
         terminalDockCloseTimerRef.current = null;
       }
     };
-  }, [activeAgentId, terminalDockAgentId, terminalDockMounted, terminalOpen]);
+  }, [activeProjectId, terminalDockProjectId, terminalDockMounted, terminalOpen]);
 
   const drawerPinnedPanel = activeProjectId
     ? drawerPinnedByProject[activeProjectId]
@@ -1774,8 +1774,8 @@ export function App() {
   const activeThinking = activeAgentId
     ? (streamingThinking[activeAgentId] ?? "")
     : "";
-  const activeTerminalHeight = activeAgentId
-    ? (terminalHeightByAgent[activeAgentId] ?? COMPOSER_DEFAULT_TERMINAL_HEIGHT)
+  const activeTerminalHeight = activeProjectId
+    ? (terminalHeightByAgent[activeProjectId] ?? COMPOSER_DEFAULT_TERMINAL_HEIGHT)
     : COMPOSER_DEFAULT_TERMINAL_HEIGHT;
   const requestedTerminalRowHeight =
     !terminalDockVisible || terminalDockClosing
@@ -2152,7 +2152,7 @@ export function App() {
         ...nextAgents.map((agent) => agent.id),
         ...remainingPendingAgents.map((agent) => agent.id),
       ]);
-      setTerminalDockStateByAgent((current) =>
+      setTerminalDockStateByProject((current) =>
         pruneTerminalDockState(current, activeIds),
       );
       setTerminalHeightByAgent((current) =>
@@ -2487,7 +2487,7 @@ export function App() {
 
   useEffect(() => {
     const activeIds = new Set(displayAgents.map((agent) => agent.id));
-    setTerminalDockStateByAgent((current) =>
+    setTerminalDockStateByProject((current) =>
       pruneTerminalDockState(current, activeIds),
     );
   }, [displayAgents]);
@@ -4624,15 +4624,15 @@ export function App() {
     }
   }
 
-  function setTerminalOpenForAgent(agentId: string, open: boolean) {
-    setTerminalDockStateByAgent((current) =>
-      setTerminalDockOpen(current, agentId, open),
+  function setTerminalOpenForProject(projectId: string, open: boolean) {
+    setTerminalDockStateByProject((current) =>
+      setTerminalDockOpen(current, projectId, open),
     );
   }
 
-  function setTerminalCollapsedForAgent(agentId: string, collapsed: boolean) {
-    setTerminalDockStateByAgent((current) =>
-      setTerminalDockCollapsed(current, agentId, collapsed),
+  function setTerminalCollapsedForProject(projectId: string, collapsed: boolean) {
+    setTerminalDockStateByProject((current) =>
+      setTerminalDockCollapsed(current, projectId, collapsed),
     );
   }
 
@@ -7891,19 +7891,21 @@ export function App() {
         </footer>
         )}
 
-        {!isLanWeb && activeAgentId && !isPendingAgentId(activeAgentId) && !settingsOpen && !configOpen && !environmentDialog && terminalDockVisible && (
+        {!isLanWeb && !settingsOpen && !configOpen && !environmentDialog && terminalDockVisible && (
           <TerminalDock
-            key={terminalDockAgentId}
+            key={terminalDockProjectId}
             agentId={activeAgentId}
+            projectCwd={activeProject?.path}
             open={terminalDockVisible}
             closing={terminalDockClosing}
             collapsed={terminalCollapsed}
             height={terminalRowHeight}
             terminal={api.terminal}
             onCollapsedChange={(collapsed) =>
-              setTerminalCollapsedForAgent(activeAgentId, collapsed)
+              activeProjectId && setTerminalCollapsedForProject(activeProjectId, collapsed)
             }
             onHeightChange={(height) => {
+              if (!activeProjectId) return;
               const maxHeight = Math.max(
                 120,
                 chatLayoutHeight -
@@ -7915,10 +7917,10 @@ export function App() {
               );
               setTerminalHeightByAgent((current) => ({
                 ...current,
-                [activeAgentId]: Math.min(height, maxHeight),
+                [activeProjectId]: Math.min(height, maxHeight),
               }));
             }}
-            onClose={() => setTerminalOpenForAgent(activeAgentId, false)}
+            onClose={() => activeProjectId && setTerminalOpenForProject(activeProjectId, false)}
           />
         )}
       </main>
@@ -7932,11 +7934,11 @@ export function App() {
               onClick: () => scratchPad.toggle(),
               icon: <Pencil size={17} />,
             }}
-            terminalAction={activeAgentId ? {
+            terminalAction={activeProjectId ? {
               active: terminalOpen,
               label: t("app.terminal"),
               onClick: () => {
-                setTerminalOpenForAgent(activeAgentId, !terminalOpen);
+                setTerminalOpenForProject(activeProjectId, !terminalOpen);
               },
               icon: <Terminal size={17} />,
             } : undefined}

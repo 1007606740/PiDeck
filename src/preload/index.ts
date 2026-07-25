@@ -942,12 +942,12 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.terminalList, agentId) as Promise<
 				TerminalTab[]
 			>,
-		ensure: (agentId: string) =>
-			ipcRenderer.invoke(ipcChannels.terminalEnsure, agentId) as Promise<
+		ensure: (agentId: string, cwd?: string) =>
+			ipcRenderer.invoke(ipcChannels.terminalEnsure, agentId, cwd) as Promise<
 				TerminalTab[]
 			>,
-		create: (agentId: string) =>
-			ipcRenderer.invoke(ipcChannels.terminalCreate, agentId) as Promise<
+		create: (agentId: string, shell?: string, cwd?: string) =>
+			ipcRenderer.invoke(ipcChannels.terminalCreate, agentId, shell, cwd) as Promise<
 				TerminalTab
 			>,
 		input: (tabId: string, data: string) =>
@@ -961,6 +961,10 @@ const api = {
 			) as Promise<void>,
 		close: (tabId: string) =>
 			ipcRenderer.invoke(ipcChannels.terminalClose, tabId) as Promise<void>,
+		shells: () =>
+			ipcRenderer.invoke(ipcChannels.terminalShells) as Promise<
+				{ shell: string; label: string; available: boolean }[]
+			>,
 		onData: (callback: (payload: TerminalDataEvent) => void) =>
 			subscribe(ipcChannels.terminalData, callback),
 		onExit: (callback: (payload: TerminalExitEvent) => void) =>

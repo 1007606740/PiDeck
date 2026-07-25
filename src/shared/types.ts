@@ -71,7 +71,15 @@ export type AgentTab = {
 	noSession?: boolean;
 };
 
-export type TerminalShell = "pwsh" | "powershell" | "cmd" | "zsh" | "bash" | "fish" | "sh";
+export type TerminalShell = "pwsh" | "powershell" | "cmd" | "zsh" | "bash" | "fish" | "sh" | "git-bash" | "wsl";
+
+/** 终端 shell 候选，包含可执行路径和启动参数 */
+export type TerminalShellCandidate = {
+	shell: TerminalShell;
+	label: string;
+	/** 是否已检测到该 shell 可用 */
+	available: boolean;
+};
 
 export type TerminalTab = {
 	id: string;
