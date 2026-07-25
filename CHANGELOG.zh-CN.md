@@ -38,6 +38,13 @@
 - **WSL 环境支持（实验性）** — 会话扫描、文件操作、路径处理适配 WSL。
 - **WSL 环境支持** — 会话扫描、文件操作、路径处理适配 WSL（感谢 @Lopution PR #84）。
 
+### 🔧 终端与交互
+
+- **终端 Shell 选择器** — Windows 自动检测可用 shell（pwsh、Windows PowerShell、
+  cmd、Git Bash、WSL），+ 按钮旁下拉菜单选择指定 shell 打开终端。
+- **项目级终端** — 终端不再绑定 agent，改为绑定项目。切换 agent 或无 agent 运行时
+  终端保持打开。
+
 ### ✨ 交互优化
 
 - **设置页重构** — 全局草稿保存/取消，新 Tab 分类：通用、外观、代理、开发、宠物、存储。
@@ -87,6 +94,18 @@
 - **消息 CPA_DONE 标记清理** — 从消息末尾移除 `CPA_DONE`。
 - **用户消息编辑** — 编辑后回填到输入框重新发送。
 
+### 🐛 终端问题修复
+
+- **终端始终打开 pwsh.exe** — `spawnShell` 计算了按首选 shell 排序的列表，
+  但循环仍遍历原始未排序数组，导致首选 shell 被忽略。
+- **Shell 下拉菜单被 overflow:hidden 裁剪** — `.terminal-tabs` 的
+  `overflow: hidden` 裁剪了绝对定位的 Shell 选择菜单。
+- **窗口关闭后终端数据导致崩溃** — emit 回调未检查 `webContents` 是否已销毁。
+- **停止按钮首次点击不生效** — 新增 `recentlyAborted` 集合，拦截 abort 后 pi
+  的延迟事件。
+- **429 错误未在聊天区显示** — 自动重试失败后将 agent 状态设为 error 并追加
+  可见错误信息到聊天区域。
+
 ### 🙏 致谢
 
 感谢所有贡献者提交的 PR、Issue 和反馈：
@@ -105,29 +124,6 @@
 特别感谢 **微时佬友** 提供的 Grok 模型服务，用于我们的社区测试环境 🎉
 
 > 💬 **QQ 反馈交流群：1026218644**
-
----
-
-## v0.6.7 - 2026-07-27
-
-### 🚀 新功能
-
-- **终端 Shell 选择器** — Windows 自动检测可用 shell（pwsh、Windows PowerShell、
-  cmd、Git Bash、WSL），+ 按钮旁下拉菜单选择指定 shell 打开终端。
-- **项目级终端** — 终端不再绑定 agent，改为绑定项目。切换 agent 或无 agent 运行时
-  终端保持打开。
-
-### 🐛 问题修复
-
-- **终端始终打开 pwsh.exe** — `spawnShell` 计算了按首选 shell 排序的列表，
-  但循环仍遍历原始未排序数组，导致首选 shell 被忽略。
-- **Shell 下拉菜单被 overflow:hidden 裁剪** — `.terminal-tabs` 的
-  `overflow: hidden` 裁剪了绝对定位的 Shell 选择菜单。
-- **窗口关闭后终端数据导致崩溃** — emit 回调未检查 `webContents` 是否已销毁。
-- **停止按钮首次点击不生效** — 新增 `recentlyAborted` 集合，拦截 abort 后 pi
-  的延迟事件。
-- **429 错误未在聊天区显示** — 自动重试失败后将 agent 状态设为 error 并追加
-  可见错误信息到聊天区域。
 
 ---
 

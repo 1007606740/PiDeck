@@ -62,6 +62,14 @@ All notable changes to PiDeck are documented here.
 - **WSL environment support** — Session scanning, file operations, and path
   handling adapted for WSL (via @Lopution PR #84).
 
+### 🔧 Terminal & UX
+
+- **Terminal shell selector** — Detect available shells (pwsh, Windows PowerShell,
+  cmd, Git Bash, WSL) on Windows. Dropdown menu next to the + button lets you pick
+  which shell to open.
+- **Project-level terminal** — Terminal is now tied to the project, not the agent.
+  It stays open when switching agents or when no agent is running.
+
 ### ✨ UX Improvements
 
 - **Settings redesigned** — Global draft save/cancel replaces per-tab save buttons.
@@ -131,6 +139,20 @@ All notable changes to PiDeck are documented here.
 - **Message CPA_DONE marker cleanup** — Strips `CPA_DONE` from message end.
 - **User message edit** — Edited text backfilled to composer for re-sending.
 
+### 🐛 Terminal Fixes
+
+- **Terminal always opened pwsh.exe** — `spawnShell` computed the priority-sorted
+  candidate list but was iterating over the original unsorted array, so the
+  preferred shell was always ignored.
+- **Shell dropdown clipped by overflow:hidden** — `.terminal-tabs` had
+  `overflow: hidden` which clipped the absolutely-positioned shell menu above it.
+- **Object destroyed crash on terminal data after window close** — The emit
+  callback lacked a guard against destroyed `webContents`.
+- **Stop button not cancelling on first click** — Added `recentlyAborted` set to
+  discard delayed pi events after abort.
+- **429 error not shown in chat** — Auto-retry failure now sets agent status to
+  error and appends a visible error message.
+
 ### 🙏 Acknowledgements
 
 Thanks to all contributors for their PRs, issues, and feedback:
@@ -150,32 +172,6 @@ Special thanks to **微时佬友** for providing the Grok model service used in 
 community testing environment 🎉
 
 > 💬 **Join our QQ group for feedback & discussion: 1026218644**
-
----
-
-## v0.6.7 - 2026-07-27
-
-### 🚀 New Features
-
-- **Terminal shell selector** — Detect available shells (pwsh, Windows PowerShell,
-  cmd, Git Bash, WSL) on Windows. Dropdown menu next to the + button lets you pick
-  which shell to open.
-- **Project-level terminal** — Terminal is now tied to the project, not the agent.
-  It stays open when switching agents or when no agent is running.
-
-### 🐛 Bug Fixes
-
-- **Terminal always opened pwsh.exe** — `spawnShell` computed the priority-sorted
-  candidate list but was iterating over the original unsorted array, so the
-  preferred shell was always ignored.
-- **Shell dropdown clipped by overflow:hidden** — `.terminal-tabs` had
-  `overflow: hidden` which clipped the absolutely-positioned shell menu above it.
-- **Object destroyed crash on terminal data after window close** — The emit
-  callback lacked a guard against destroyed `webContents`.
-- **Stop button not cancelling on first click** — Added `recentlyAborted` set to
-  discard delayed pi events after abort.
-- **429 error not shown in chat** — Auto-retry failure now sets agent status to
-  error and appends a visible error message.
 
 ---
 
