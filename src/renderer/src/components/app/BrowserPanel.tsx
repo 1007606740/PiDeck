@@ -90,7 +90,6 @@ function getInitialActiveTab(): TabEntry {
 let pendingNavigateUrl: string | null = null;
 
 export function navigateTo(url: string) {
-	ensureInitialTab();
 	// 每次外部导航创建新 tab，避免多个链接复用同一个 tab
 	const id = genTabId();
 	moduleState.tabs.push({ id, title: "PiDeck", url });
@@ -314,6 +313,11 @@ export function BrowserPanel(props: {
 			event.stopPropagation();
 			const current = moduleState.tabs;
 			if (current.length <= 1) {
+				// 关闭最后一个 tab 时从 moduleState 移除，避免下次 navigateTo 时旧 tab 还在
+				moduleState.tabs = [];
+				moduleState.activeTabId = null;
+				moduleState.navigateKey = 0;
+				pendingNavigateUrl = null;
 				onClose?.();
 				return;
 			}
@@ -464,7 +468,7 @@ export function BrowserPanel(props: {
 			)}
 
 			<div className="browser-webview-stage">
-				<webview ref={(el) => { (webviewRef as React.MutableRefObject<any>).current = el; if (el) el.setAttribute("allowfileaccess", "true"); }} className="browser-webview" src={moduleState.navigateKey > 0 ? "about:blank" : initialTab.url} allowpopups={"true" as any} />
+				<webview ref={(el) => { (webviewRef as React.MutableRefObject<any>).current = el; if (el) el.setAttribute("allowfileaccess", "true"); }} className="browser-webview" src={initialTab.url} allowpopups={"true" as any} />
 			</div>
 		</div>
 	);
