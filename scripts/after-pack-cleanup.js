@@ -184,14 +184,11 @@ exports.default = async function (context) {
 
   let totalRemoved = 0;
 
-  // --- 3a. @larksuiteoapi: 删除未使用的 CJS lib/（代码用 await import() 走 ESM es/） ---
-  const larkLibDir = path.join(extractDir, "node_modules", "@larksuiteoapi", "node-sdk", "lib");
-  try {
-    const size = await dirSize(larkLibDir);
-    await rmDir(larkLibDir);
-    totalRemoved += size;
-    console.log(`  [afterPack] 已删除: @larksuiteoapi/lib (CJS) (${(size / 1024 / 1024).toFixed(1)} MB)`);
-  } catch { /* 目录不存在则跳过 */ }
+  // --- 3a. @larksuiteoapi 清理
+  // 注意：@larksuiteoapi/node-sdk 的 package.json 中 main 指向 ./lib/index.js（CJS），
+  // 没有 exports 字段。Node.js await import() 在无 exports 字段时仍使用 main 字段，
+  // 因此不能删除 lib/ 目录。如果希望减少体积，应把 main 改为 ./es/index.js 后再删除 lib/。
+  // 目前保留不动以避免 Cannot find package 运行时错误。
 
   // --- 3b. 删除所有 node_modules 中的 source map、文档、测试文件 ---
   const nmExtractDir = path.join(extractDir, "node_modules");
