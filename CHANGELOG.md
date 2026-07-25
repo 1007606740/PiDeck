@@ -4,7 +4,7 @@
 
 All notable changes to PiDeck are documented here.
 
-## v0.6.6 - 2026-07-24
+## v0.6.6 - 2026-07-25
 
 ### 🚀 New Features
 
@@ -138,6 +138,25 @@ All notable changes to PiDeck are documented here.
   hide background card when dialog open, filter out Pi's default ✎ option.
 - **Message CPA_DONE marker cleanup** — Strips `CPA_DONE` from message end.
 - **User message edit** — Edited text backfilled to composer for re-sending.
+- **Feishu link "Cannot find package @larksuiteoapi/node-sdk" after packaging** —
+  The `afterPack` cleanup script was deleting the CJS build (`lib/`) assuming
+  `await import()` would use the ESM entry, but the package has no `exports` field
+  so Node.js resolves via `main` → `./lib/index.js`. Removed the deletion to fix
+  runtime resolution.
+
+### 🐛 Terminal Fixes
+
+- **Terminal always opened pwsh.exe** — `spawnShell` computed the priority-sorted
+  candidate list but was iterating over the original unsorted array, so the
+  preferred shell was always ignored.
+- **Shell dropdown clipped by overflow:hidden** — `.terminal-tabs` had
+  `overflow: hidden` which clipped the absolutely-positioned shell menu above it.
+- **Object destroyed crash on terminal data after window close** — The emit
+  callback lacked a guard against destroyed `webContents`.
+- **Stop button not cancelling on first click** — Added `recentlyAborted` set to
+  discard delayed pi events after abort.
+- **429 error not shown in chat** — Auto-retry failure now sets agent status to
+  error and appends a visible error message.
 
 ### 🐛 Terminal Fixes
 

@@ -4,7 +4,7 @@
 
 这里记录 PiDeck 各版本的重要变化。
 
-## v0.6.6 - 2026-07-24
+## v0.6.6 - 2026-07-25
 
 ### 🚀 新功能
 
@@ -93,6 +93,22 @@
   过滤 Pi 自带的 ✎ 选项。
 - **消息 CPA_DONE 标记清理** — 从消息末尾移除 `CPA_DONE`。
 - **用户消息编辑** — 编辑后回填到输入框重新发送。
+- **飞书链接打包后 "Cannot find package @larksuiteoapi/node-sdk"** —
+  `afterPack` 脚本删除了 CJS 构建产物 `lib/`，但该包没有 `exports` 字段，
+  Node.js 的 `await import()` 仍通过 `main` 字段（`./lib/index.js`）解析，
+  删除后导致运行时找不到模块。已移除该删除逻辑以修复打包后的飞书功能。
+
+### 🐛 终端问题修复
+
+- **终端始终打开 pwsh.exe** — `spawnShell` 计算了按首选 shell 排序的列表，
+  但循环仍遍历原始未排序数组，导致首选 shell 被忽略。
+- **Shell 下拉菜单被 overflow:hidden 裁剪** — `.terminal-tabs` 的
+  `overflow: hidden` 裁剪了绝对定位的 Shell 选择菜单。
+- **窗口关闭后终端数据导致崩溃** — emit 回调未检查 `webContents` 是否已销毁。
+- **停止按钮首次点击不生效** — 新增 `recentlyAborted` 集合，拦截 abort 后 pi
+  的延迟事件。
+- **429 错误未在聊天区显示** — 自动重试失败后将 agent 状态设为 error 并追加
+  可见错误信息到聊天区域。
 
 ### 🐛 终端问题修复
 
