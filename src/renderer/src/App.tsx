@@ -25,7 +25,6 @@ import {
   MessageCircle,
   MessageSquare,
   PanelLeftClose,
-  PanelLeftOpen,
   Search,
   Play,
   Plus,
@@ -52,6 +51,7 @@ import {
   HatGlasses,
   Copy,
   X,
+  PanelLeft,
 } from "lucide-react";
 import { subscribeToNotice, showNotice } from "./utils/notice";
 import { createPreviewApi } from "./previewApi";
@@ -98,7 +98,7 @@ import {
   pruneTerminalDockState,
   setTerminalDockCollapsed,
   setTerminalDockOpen,
-  type TerminalDockStateByAgent,
+  type TerminalDockStateByProject,
 } from "./terminalDockState";
 import { useMessagePagination } from "./hooks/useMessagePagination";
 import { useSessionLoader } from "./hooks/useSessionLoader";
@@ -489,6 +489,8 @@ export function App() {
   const [dragOverProjectId, setDragOverProjectId] = useState<string>();
   const [agents, setAgents] = useState<AgentTab[]>([]);
   const [pendingAgents, setPendingAgents] = useState<PendingAgentTab[]>([]);
+  /** 侧栏 π logo 重播令牌：agent 启动（含历史会话）/关闭时递增，驱动 BrandLockup 动画 */
+  const [brandLogoReplayToken, setBrandLogoReplayToken] = useState(0);
   const [activeProjectId, setActiveProjectId] = useState<string>();
   const activeProjectIdRef = useRef<string | undefined>(activeProjectId);
   activeProjectIdRef.current = activeProjectId;
@@ -1286,18 +1288,16 @@ export function App() {
   const [chatLayoutHeight, setChatLayoutHeight] = useState(() => window.innerHeight);
   const [composerAutoHeight, setComposerAutoHeight] =
     useState(COMPOSER_MIN_HEIGHT);
-  const [terminalDockStateByAgent, setTerminalDockStateByAgent] =
-    useState<TerminalDockStateByAgent>({});
+  const [terminalDockStateByProject, setTerminalDockStateByProject] =
+    useState<TerminalDockStateByProject>({});
   const [terminalHeightByAgent, setTerminalHeightByAgent] = useState<
     Record<string, number>
   >({});
   const [terminalDockMounted, setTerminalDockMounted] = useState(false);
   const [terminalDockClosing, setTerminalDockClosing] = useState(false);
-  const [terminalDockAgentId, setTerminalDockAgentId] = useState<string>();
+  const [terminalDockProjectId, setTerminalDockProjectId] = useState<string>();
   const terminalDockCloseTimerRef = useRef<number | null>(null);
   const [listCollapsed, setListCollapsed] = useState(false);
-  const [listHoverRevealSuppressed, setListHoverRevealSuppressed] =
-    useState(false);
   const [drawerCollapsed, setDrawerCollapsed] = useState(false);
   const [drawerPinnedByProject, setDrawerPinnedByProject] = useState<
     Record<string, DrawerPanel>
@@ -1545,30 +1545,30 @@ export function App() {
     if (targetAgentId) setAttachedImagesForAgent(targetAgentId, value);
   }
 
-  const terminalDockState = activeAgentId
-    ? terminalDockStateByAgent[activeAgentId]
+  const terminalDockState = activeProjectId
+    ? terminalDockStateByProject[activeProjectId]
     : undefined;
   // 终端打开/折叠状态按 agent 隔离,避免切换项目/agent 后丢失当前终端 UI 状态。
   const terminalOpen = Boolean(terminalDockState?.open);
   const terminalCollapsed = Boolean(terminalDockState?.collapsed);
   const terminalDockVisible =
-    terminalDockMounted && terminalDockAgentId === activeAgentId;
+    terminalDockMounted && terminalDockProjectId === activeProjectId;
 
   // 轨道尺寸只在开关时变更一次，终端本身用 transform 完成合成动画。
   // 关闭时保留组件至动画结束，避免同步销毁 xterm 阻塞第一帧。
   useEffect(() => {
-    if (terminalOpen && activeAgentId) {
+    if (terminalOpen && activeProjectId) {
       if (terminalDockCloseTimerRef.current != null) {
         window.clearTimeout(terminalDockCloseTimerRef.current);
         terminalDockCloseTimerRef.current = null;
       }
-      setTerminalDockAgentId(activeAgentId);
+      setTerminalDockProjectId(activeProjectId);
       setTerminalDockClosing(false);
       setTerminalDockMounted(true);
       return;
     }
     if (!terminalDockMounted) return;
-    if (terminalDockAgentId !== activeAgentId) {
+    if (terminalDockProjectId !== activeProjectId) {
       setTerminalDockMounted(false);
       return;
     }
@@ -1587,7 +1587,7 @@ export function App() {
         terminalDockCloseTimerRef.current = null;
       }
     };
-  }, [activeAgentId, terminalDockAgentId, terminalDockMounted, terminalOpen]);
+  }, [activeProjectId, terminalDockProjectId, terminalDockMounted, terminalOpen]);
 
   const drawerPinnedPanel = activeProjectId
     ? drawerPinnedByProject[activeProjectId]
@@ -1700,12 +1700,38 @@ export function App() {
     setMultiSelectOpen(false);
   }, [activeMessages, renderedRuns]);
 
-  const lastUserMessageId = useMemo(() => {
+
+  /**
+   * 判断用户消息是否可重发：仅当该消息为最后一条用户消息，且其后的 assistant 响应
+   * 被中止（系统提示）或执行失败（error 消息）时才显示重发按钮。
+   * 正常完成的 assistant 响应不应触发重发。
+   */
+  const resendableMessageIds = useMemo(() => {
+    const ids = new Set<string>();
     for (let i = activeMessages.length - 1; i >= 0; i--) {
-      if (activeMessages[i].role === "user") return activeMessages[i].id;
+      const msg = activeMessages[i];
+      if (msg.role !== "user") continue;
+      // 从最后一条用户消息开始，检查其后最近的消息状态
+      let hasAbortOrError = false;
+      for (let j = i + 1; j < activeMessages.length; j++) {
+        const next = activeMessages[j];
+        if (next.role === "user") break; // 下一条用户消息，不属本轮
+        if (next.role === "error") { hasAbortOrError = true; break; }
+        if (next.role === "system") {
+          const meta = next.meta as Record<string, unknown> | undefined;
+          if (meta?.i18nKey === "app.abortRequested") { hasAbortOrError = true; break; }
+        }
+        if (next.role === "assistant" && next.text?.trim()) {
+          // 存在正常的 assistant 回复 → 不显示重发
+          break;
+        }
+      }
+      if (hasAbortOrError) ids.add(msg.id);
+      break; // 只检查最后一条用户消息
     }
-    return undefined;
+    return ids;
   }, [activeMessages]);
+
   // 从 activeUiRequest 提取正在进行的交互式请求（select/confirm/input/editor）
   // 这是 ask_question 在 pi RPC 模式下的表现方式：pi 通过 extension_ui_request 将
   // 等待用户回答的对话框发送到桌面端，包含 requestId、title、options 等完整信息。
@@ -1748,8 +1774,8 @@ export function App() {
   const activeThinking = activeAgentId
     ? (streamingThinking[activeAgentId] ?? "")
     : "";
-  const activeTerminalHeight = activeAgentId
-    ? (terminalHeightByAgent[activeAgentId] ?? COMPOSER_DEFAULT_TERMINAL_HEIGHT)
+  const activeTerminalHeight = activeProjectId
+    ? (terminalHeightByAgent[activeProjectId] ?? COMPOSER_DEFAULT_TERMINAL_HEIGHT)
     : COMPOSER_DEFAULT_TERMINAL_HEIGHT;
   const requestedTerminalRowHeight =
     !terminalDockVisible || terminalDockClosing
@@ -2126,7 +2152,7 @@ export function App() {
         ...nextAgents.map((agent) => agent.id),
         ...remainingPendingAgents.map((agent) => agent.id),
       ]);
-      setTerminalDockStateByAgent((current) =>
+      setTerminalDockStateByProject((current) =>
         pruneTerminalDockState(current, activeIds),
       );
       setTerminalHeightByAgent((current) =>
@@ -2461,7 +2487,7 @@ export function App() {
 
   useEffect(() => {
     const activeIds = new Set(displayAgents.map((agent) => agent.id));
-    setTerminalDockStateByAgent((current) =>
+    setTerminalDockStateByProject((current) =>
       pruneTerminalDockState(current, activeIds),
     );
   }, [displayAgents]);
@@ -2862,6 +2888,11 @@ export function App() {
       agentStatusByAgentRef.current[agent.id] = agent.status;
     }
   }, [displayAgents, activeAgentId, modifiedFiles, messagesByAgent]);
+
+  /** 侧栏 π logo 业务反馈：新建/历史会话启动/关闭 agent 时重播拼装动画。 */
+  const triggerBrandLogoReplay = useCallback(() => {
+    setBrandLogoReplayToken((token) => token + 1);
+  }, []);
 
   // 已删除内置 goal 完成检测。
 
@@ -4017,6 +4048,8 @@ export function App() {
       autoScrollRef.current = true;
       return existing;
     }
+    // 新建 agent / 从历史会话恢复：点选当下就给品牌 logo 反馈，不必等进程真正 ready。
+    triggerBrandLogoReplay();
     const previousAgentId = activeAgentId;
     const pendingTab: PendingAgentTab = {
       id: `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -4350,6 +4383,8 @@ export function App() {
 
   async function closeAgent(agentId: string) {
     if (isPendingAgentId(agentId)) return;
+    // 关闭当下重播 logo，与启动反馈对称。
+    triggerBrandLogoReplay();
     await api.agents.stop(agentId);
   }
 
@@ -4589,15 +4624,15 @@ export function App() {
     }
   }
 
-  function setTerminalOpenForAgent(agentId: string, open: boolean) {
-    setTerminalDockStateByAgent((current) =>
-      setTerminalDockOpen(current, agentId, open),
+  function setTerminalOpenForProject(projectId: string, open: boolean) {
+    setTerminalDockStateByProject((current) =>
+      setTerminalDockOpen(current, projectId, open),
     );
   }
 
-  function setTerminalCollapsedForAgent(agentId: string, collapsed: boolean) {
-    setTerminalDockStateByAgent((current) =>
-      setTerminalDockCollapsed(current, agentId, collapsed),
+  function setTerminalCollapsedForProject(projectId: string, collapsed: boolean) {
+    setTerminalDockStateByProject((current) =>
+      setTerminalDockCollapsed(current, projectId, collapsed),
     );
   }
 
@@ -5812,17 +5847,9 @@ export function App() {
     const nextCollapsed = !listCollapsed;
     if (!nextCollapsed) setListWidth(DEFAULT_LIST_WIDTH);
     if (nextCollapsed) {
-      // 点击折叠后鼠标和焦点仍在侧栏内;先释放焦点并抑制 hover,避免刚折叠就被 CSS 展开。
       (document.activeElement as HTMLElement | null)?.blur();
     }
-    setListHoverRevealSuppressed(nextCollapsed);
     setListCollapsed(nextCollapsed);
-  }
-
-  function releaseListHoverSuppression(event: PointerEvent<HTMLDivElement>) {
-    if (listCollapsed && listHoverRevealSuppressed && event.clientX > 24) {
-      setListHoverRevealSuppressed(false);
-    }
   }
 
   /** HTML 文件预览：在内置浏览器中打开 */
@@ -5848,13 +5875,11 @@ export function App() {
         "wechat-shell",
         drawer ? "drawer-open" : "",
         listCollapsed ? "list-collapsed" : "",
-        listHoverRevealSuppressed ? "list-hover-suppressed" : "",
         drawerCollapsed ? "drawer-collapsed" : "",
         settings.useNativeTitleBar ? "" : "custom-titlebar-enabled",
       ]
         .filter(Boolean)
         .join(" ")}
-      onPointerMove={releaseListHoverSuppression}
       style={
         {
           "--list-width": `${listCollapsed ? 0 : listWidth}px`,
@@ -5869,6 +5894,19 @@ export function App() {
     >
       {!settings.useNativeTitleBar && (
         <div className="window-drag-layer" aria-hidden="true" />
+      )}
+      {!settings.useNativeTitleBar && (
+        <div className="window-controls-left">
+          <button
+            type="button"
+            className={`window-control sidebar-toggle${listCollapsed ? " collapsed" : ""}`}
+            aria-label={listCollapsed ? t("app.expandList") : t("app.collapseList")}
+            title={listCollapsed ? t("app.expandList") : t("app.collapseList")}
+            onClick={toggleListCollapsed}
+          >
+            <PanelLeft size={15} strokeWidth={2.2} aria-hidden="true" />
+          </button>
+        </div>
       )}
       {!settings.useNativeTitleBar && (
         <div className="window-controls" aria-label={t("app.windowControls")}>
@@ -5919,15 +5957,12 @@ export function App() {
       )}
       <aside
         className="chat-list-pane v3-braun"
-        onPointerLeave={() => {
-          if (listHoverRevealSuppressed) setListHoverRevealSuppressed(false);
-        }}
       >
         <div className="sidebar-body">
           <div className="list-toolbar">
           <div className="app-badge">
-            {/* 像素几何标 + 点阵字标，贴近官方 pi logo 呈现，而非套用像素字体 */}
-            <BrandLockup />
+            {/* 官方 π 标 + 字标；agent 启停时通过 replayToken 重播动画 */}
+            <BrandLockup replayToken={brandLogoReplayToken} />
           </div>
         </div>
         <button
@@ -6690,19 +6725,7 @@ export function App() {
                 <Globe size={17} />
               </button>
             </div>
-            <button
-              className="icon-button sidebar-collapse-logo"
-              title={
-                listCollapsed ? t("app.expandList") : t("app.collapseList")
-              }
-              onClick={toggleListCollapsed}
-            >
-              {listCollapsed ? (
-                <PanelLeftOpen size={18} strokeWidth={1.9} />
-              ) : (
-                <PanelLeftClose size={18} strokeWidth={1.9} />
-              )}
-            </button>
+
           </div>
         )}
         </div>
@@ -6840,7 +6863,23 @@ export function App() {
                                 btn.classList.add("is-copied");
                                 window.setTimeout(() => btn.classList.remove("is-copied"), 900);
                               } catch {
-                                showNotice(t("copy.failed"), 2000, "error");
+                                // navigator.clipboard.writeText 在 Electron 中有时抛异常但实际已写入
+                                // 尝试 fallback 复制
+                                try {
+                                  const textarea = document.createElement("textarea");
+                                  textarea.value = appNotice.message;
+                                  textarea.style.position = "fixed";
+                                  textarea.style.opacity = "0";
+                                  document.body.appendChild(textarea);
+                                  textarea.select();
+                                  document.execCommand("copy");
+                                  document.body.removeChild(textarea);
+                                  const btn = event.currentTarget;
+                                  btn.classList.add("is-copied");
+                                  window.setTimeout(() => btn.classList.remove("is-copied"), 900);
+                                } catch {
+                                  showNotice(t("copy.failed"), 2000, "error");
+                                }
                               }
                             }}
                           >
@@ -7057,7 +7096,7 @@ export function App() {
                       onEditMessage={editMessage}
                       onDeleteMessage={deleteMessage}
                       agentRunning={isAgentBusy}
-                      isLastUserMessage={message.id === lastUserMessageId}
+                      showResendButton={resendableMessageIds.has(message.id)}
                       validCommandNames={validCommandNames}
                       validFilePaths={validFilePaths}
                       onEnterMultiSelect={() => setMultiSelectOpen(true)}
@@ -7852,19 +7891,21 @@ export function App() {
         </footer>
         )}
 
-        {!isLanWeb && activeAgentId && !isPendingAgentId(activeAgentId) && !settingsOpen && !configOpen && !environmentDialog && terminalDockVisible && (
+        {!isLanWeb && !settingsOpen && !configOpen && !environmentDialog && terminalDockVisible && (
           <TerminalDock
-            key={terminalDockAgentId}
+            key={terminalDockProjectId}
             agentId={activeAgentId}
+            projectCwd={activeProject?.path}
             open={terminalDockVisible}
             closing={terminalDockClosing}
             collapsed={terminalCollapsed}
             height={terminalRowHeight}
             terminal={api.terminal}
             onCollapsedChange={(collapsed) =>
-              setTerminalCollapsedForAgent(activeAgentId, collapsed)
+              activeProjectId && setTerminalCollapsedForProject(activeProjectId, collapsed)
             }
             onHeightChange={(height) => {
+              if (!activeProjectId) return;
               const maxHeight = Math.max(
                 120,
                 chatLayoutHeight -
@@ -7876,10 +7917,10 @@ export function App() {
               );
               setTerminalHeightByAgent((current) => ({
                 ...current,
-                [activeAgentId]: Math.min(height, maxHeight),
+                [activeProjectId]: Math.min(height, maxHeight),
               }));
             }}
-            onClose={() => setTerminalOpenForAgent(activeAgentId, false)}
+            onClose={() => activeProjectId && setTerminalOpenForProject(activeProjectId, false)}
           />
         )}
       </main>
@@ -7893,11 +7934,11 @@ export function App() {
               onClick: () => scratchPad.toggle(),
               icon: <Pencil size={17} />,
             }}
-            terminalAction={activeAgentId ? {
+            terminalAction={activeProjectId ? {
               active: terminalOpen,
               label: t("app.terminal"),
               onClick: () => {
-                setTerminalOpenForAgent(activeAgentId, !terminalOpen);
+                setTerminalOpenForProject(activeProjectId, !terminalOpen);
               },
               icon: <Terminal size={17} />,
             } : undefined}

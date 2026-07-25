@@ -66,7 +66,8 @@ async function getInstalledSlugsSet(searchItems: SkillHubItem[]): Promise<Set<st
 			nameCount.set(n, (nameCount.get(n) || 0) + 1);
 		}
 
-		// 仅当 name 在搜索结果中唯一出现时才标为已安装（避免同名不同包的误标）
+		// 仅当 name 在搜索结果中唯一出现时才标为已安装，避免同名不同包误标
+		// 同名歧义（如 anthropics/pdf 和 openai/pdf）由 persistedRef 精确 slug 记录处理
 		const result = new Set<string>();
 		for (const item of searchItems) {
 			if (installed.has(item.name.toLowerCase()) && nameCount.get(item.name.toLowerCase()) === 1) {
@@ -133,22 +134,12 @@ export function SkillHubStorePanel() {
 			const data = await api.skillHub.search(q, 50);
 			// 搜索后判断已安装状态（需要搜索结果列表来消除同名歧义）
 			const installed = await getInstalledSlugsSet(data.items);
-			// 合并持久化记录 → 确保已安装的始终显示为已安装（即使文件系统检测因同名不唯一而跳过）
-			// 同时验证持久化记录是否仍然有效：检查对应 name 是否还在本地已安装列表中
-			const allInstalledNames = await getInstalledNames();
+			// 合并持久化记录 → 精确 slug 匹配，无条件信任（安装时已记录完整 slug）
 			const merged = new Set(installed);
-			// ref 可能在组件热更新后仍持有旧 session 的脏数据，运行时兜底确保可迭代。
 			const persisted = Array.isArray(persistedRef.current) ? persistedRef.current : [];
-			const validPersisted: PersistedInstall[] = [];
 			for (const entry of persisted) {
-				if (allInstalledNames.has(entry.name.toLowerCase())) {
-					merged.add(entry.slug);
-					validPersisted.push(entry);
-				}
+				merged.add(entry.slug);
 			}
-			// 更新持久化存储（自动清理已删除的条目）
-			persistedRef.current = validPersisted;
-			savePersisted(validPersisted);
 			setResult(data);
 			setInstalledSlugs(merged);
 		} catch (err) {

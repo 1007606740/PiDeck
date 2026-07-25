@@ -3,41 +3,41 @@ export type TerminalDockState = {
 	collapsed: boolean;
 };
 
-export type TerminalDockStateByAgent = Record<string, TerminalDockState>;
+export type TerminalDockStateByProject = Record<string, TerminalDockState>;
 
 export function setTerminalDockOpen(
-	current: TerminalDockStateByAgent,
-	agentId: string,
+	current: TerminalDockStateByProject,
+	projectId: string,
 	open: boolean,
-): TerminalDockStateByAgent {
+): TerminalDockStateByProject {
 	return {
 		...current,
-		[agentId]: {
+		[projectId]: {
 			open,
-			collapsed: current[agentId]?.collapsed ?? false,
+			collapsed: current[projectId]?.collapsed ?? false,
 		},
 	};
 }
 
 export function setTerminalDockCollapsed(
-	current: TerminalDockStateByAgent,
-	agentId: string,
+	current: TerminalDockStateByProject,
+	projectId: string,
 	collapsed: boolean,
-): TerminalDockStateByAgent {
+): TerminalDockStateByProject {
 	return {
 		...current,
-		[agentId]: {
-			open: current[agentId]?.open ?? true,
+		[projectId]: {
+			open: current[projectId]?.open ?? true,
 			collapsed,
 		},
 	};
 }
 
 export function pruneTerminalDockState(
-	current: TerminalDockStateByAgent,
+	current: TerminalDockStateByProject,
 	activeIds: Set<string>,
-): TerminalDockStateByAgent {
+): TerminalDockStateByProject {
 	return Object.fromEntries(
-		Object.entries(current).filter(([agentId]) => activeIds.has(agentId)),
+		Object.entries(current).filter(([projectId]) => activeIds.has(projectId)),
 	);
 }

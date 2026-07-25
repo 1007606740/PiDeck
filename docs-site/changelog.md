@@ -5,24 +5,27 @@
 - [中文 CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.zh-CN.md)
 - [English CHANGELOG](https://github.com/ayuayue/PiDeck/blob/main/CHANGELOG.md)
 
-## v0.6.6-beta.1
+## v0.6.6
 
-发布时间：2026-07-22
+发布时间：2026-07-24
 
-- 🚀 **Git 源代码管理**：VS Code 风格三面板（变更/历史/比较）、AI 提交摘要、Cherry-pick/Revert/Reset/Drop、Graph 可视化、分支切换、Worktree
-- 🚀 **& 会话引用**：键入 & 快速搜索引用同项目会话
-- 🚀 **多 Tab 文件编辑器**：5 个并发 Tab，弹框/侧栏双模式，Diff 对比
-- 🚀 **消息队列**：Agent 忙碌时可排队发送，支持撤回编辑
-- 🚀 **WSL 环境支持**：完整 WSL 隔离、pi 检测、发行版选择
-- 🚀 **内置浏览器**：多标签、全屏、设备预设
-- 🚀 **SkillHub 社区技能商店**
-- ✨ 设置页重构、分区域字体、窗口缩放、VS Code Seti 文件图标
-- ✨ 浮动快捷操作栏（终端/文件/Git/浏览器/草稿本/编辑器）
-- ✨ 会话大纲 + 可拖拽定位
-- 🐛 RichInput 光标漂移彻底修复、Monaco 懒加载
-- 🐛 Git 面板三元表达式修复、AI 提交生成 loading 修复
-- 🐛 大量 WSL、扩展生命周期、字符渲染稳定性修复
-- 🔧 自建 app-notice 替代 sonner toast，包体积优化
+- 🚀 **侧栏品牌区重新设计**：Pi 官方 canvas logo 裁掉空边 + Plantin 字标，agent 启停动画
+- 🚀 **多 Tab 文件编辑器**：最多 5 个并发 Tab，弹框/侧栏双模式，Diff 差异对比
+- 🚀 **& 会话引用快捷输入**：键入 & 弹出会话列表，选择特定消息或引用全部上下文
+- 🚀 **飞书/Lark 集成**：双向对话、流式卡片、自动拉群、成员管理
+- 🚀 **Git 大重构**：VS Code 风格 3 Tab 面板 + AI 提交摘要 + Git 图形历史 + Cherry-pick/Revert/Reset/Drop
+- 🚀 **Git Push / Pull**：变更面板直接推拉
+- 🚀 **Prompt 中文提示词精选**：SQLite 存储 4000+ 提示词，分类/搜索/一键导入
+- 🚀 **Skills.sh 社区技能商店**：CLI 注册中心驱动搜索和安装，支持安装量排序
+- 🚀 **Composer 重新设计**：OpenCode 风格底部操作栏，模式/Prompt/附件/模型/Think 均可点击
+- 🚀 **客户端消息队列**：Agent 忙碌时可排队，可撤回编辑
+- 🚀 **HTML 预览改为内置浏览器**：webview 渲染，不受 iframe sandbox 限制
+- 🚀 **WSL 环境支持**：会话扫描、文件操作、路径处理适配 WSL
+- ✨ 设置页重构（全局保存/取消）、字号分区配置、文件侧栏增强、Diff 分栏修复
+- ✨ 自建 Toast 通知系统、可展开的压缩卡片、Session 摘要缓存持久化
+- 🐛 大量 Bug 修复（Monaco CSP、TextModel disposed 白屏、WSL 路径、中文乱码等）
+
+特别感谢所有贡献者，以及 **微时佬友** 提供的 Grok 模型服务 🎉
 
 ## v0.6.5
 

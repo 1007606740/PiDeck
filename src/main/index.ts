@@ -77,6 +77,7 @@ import type {
 	PromptStoreSearchResponse,
 	PromptStoreRawItem,
 	PromptStoreItem,
+	TerminalShell,
 	YaoPromptListResult,
 	YaoPromptDetailResult,
 } from "../shared/types";
@@ -3292,12 +3293,12 @@ function registerIpc() {
 	ipcMain.handle(ipcChannels.terminalList, (_event, agentId: string) =>
 		terminalManager.list(agentId),
 	);
-	ipcMain.handle(ipcChannels.terminalEnsure, (_event, agentId: string) =>
-		terminalManager.ensure(agentId),
+	ipcMain.handle(ipcChannels.terminalEnsure, (_event, agentId: string, cwd?: string) =>
+		terminalManager.ensure(agentId, cwd),
 	);
-	ipcMain.handle(ipcChannels.terminalCreate, async (_event, agentId: string) => {
-		const result = await terminalManager.create(agentId);
-		void appLogger.info("terminal", "Terminal created", { agentId, tabId: result.id });
+	ipcMain.handle(ipcChannels.terminalCreate, async (_event, agentId: string, shell?: string, cwd?: string) => {
+		const result = await terminalManager.create(agentId, shell as TerminalShell | undefined, cwd);
+		void appLogger.info("terminal", "Terminal created", { agentId, tabId: result.id, shell });
 		return result;
 	});
 	ipcMain.handle(
@@ -3315,6 +3316,10 @@ function registerIpc() {
 	ipcMain.handle(ipcChannels.terminalClose, (_event, tabId: string) => {
 		terminalManager.close(tabId);
 		void appLogger.info("terminal", "Terminal closed", { tabId });
+	});
+
+	ipcMain.handle(ipcChannels.terminalShells, () => {
+		return terminalManager.listShells();
 	});
 
 	// ── 配置管理 ──────────────────────────────────────
@@ -3545,7 +3550,15 @@ app.whenReady().then(async () => {
 	});
 	terminalManager = new TerminalSessionManager(
 		(agentId) => agentManager.getCwd(agentId),
-		(channel, payload) => mainWindow?.webContents.send(channel, payload),
+		(channel, payload) => {
+			try {
+				if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+					mainWindow.webContents.send(channel, payload);
+				}
+			} catch {
+				// 窗口已关闭时静默忽略，避免 pty 后发事件抛 "Object has been destroyed"
+			}
+		},
 	);
 
 	// 启动关键路径只等设置加载与 IPC 注册，尽快 createWindow。

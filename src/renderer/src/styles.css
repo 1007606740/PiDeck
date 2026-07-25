@@ -900,7 +900,6 @@ select:focus-visible {
   position: relative;
   --list-width: 190px;
   --list-expanded-width: 190px;
-  --list-hover-width: 250px;
   --drawer-width: 320px;
   /* 抽屉列宽由 JS 按实际展开状态注入，短过渡与面板滑动同步。 */
   --drawer-col-w: 0px;
@@ -946,6 +945,18 @@ body.is-resizing .wechat-shell {
   grid-template-columns: repeat(4, 50px);
   height: var(--window-drag-height);
   background: var(--color-bg-sidebar);
+  -webkit-app-region: no-drag;
+}
+/* 左侧标题栏按钮（如侧边栏切换），布局与右侧 window-controls 对称 */
+.window-controls-left {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 920;
+  display: grid;
+  grid-template-columns: repeat(1, 50px);
+  height: var(--window-drag-height);
+  background: transparent;
   -webkit-app-region: no-drag;
 }
 .window-control {
@@ -1101,12 +1112,16 @@ body.is-resizing .wechat-shell {
 }
 
 /*
- * 侧栏品牌 lockup：仅 PiLogoCanvas（官网同款 canvas 像素 π + 拼装动画）
+ * 侧栏品牌 lockup：π 标 + 字标，垂直居中平齐。
+ * canvas 已裁掉棋盘空边；整体略右移，logo/字标拉开间距。
  */
 .brand-lockup {
   display: inline-flex;
   align-items: center;
-  gap: 0;
+  gap: 14px;
+  height: 34px;
+  /* 整体右移，避免贴侧栏左缘 */
+  margin-left: 8px;
   color: var(--color-text-primary);
   min-width: 0;
   line-height: 0;
@@ -1117,9 +1132,14 @@ body.is-resizing .wechat-shell {
   box-sizing: border-box;
   display: block;
   flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  margin: 0;
   cursor: pointer;
   line-height: 0;
-  border-radius: 2px;
+  border-radius: 0;
+  background: transparent;
 }
 
 .pi-logo-canvas-stage:focus-visible {
@@ -1127,31 +1147,45 @@ body.is-resizing .wechat-shell {
   outline-offset: 2px;
 }
 
-.pi-logo-canvas,
-.pi-deck-wordmark-canvas {
+.pi-logo-canvas {
   display: block;
+  width: 34px;
+  height: 34px;
+  margin: 0;
+  padding: 0;
   /* 关闭插值，保持像素块锐利 */
   image-rendering: pixelated;
 }
 
-.pi-deck-wordmark-canvas {
-  flex: 0 0 auto;
-  /* 小字标相对左侧高棋盘略上移，光学居中 */
-  transform: translateY(1px);
+/*
+ * 字标：与空状态 empty-tagline 同族品牌衬线（PiDeckPlantin）。
+ * 可变字重有效，无需 Departure Mono 的伪加粗。
+ */
+.brand-wordmark {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-family-brand);
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  /* 衬线字标与 34px logo 光学对齐，略下移 */
+  transform: translateY(2px);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-.brand-wordmark {
-  display: inline-block;
-  position: relative;
-  font-family: var(--font-family-display-mono);
-  font-size: 18px;
-  line-height: 1;
-  font-weight: 400;
-  letter-spacing: 0;
-  color: var(--color-text-primary);
-  font-synthesis: none;
-  -webkit-font-smoothing: none;
-  text-rendering: geometricPrecision;
+/* 点阵字标组件若他处复用，仍保持像素绘制；侧栏品牌不再使用 */
+.pi-deck-wordmark-canvas {
+  display: block;
+  flex: 0 0 auto;
+  image-rendering: pixelated;
 }
 .homepage-icon:hover {
   background: var(--color-bg-hover);
@@ -1406,50 +1440,6 @@ body.is-resizing .wechat-shell {
   bottom: 0;
   width: 6px;
   background: color-mix(in srgb, var(--color-border-strong) 42%, transparent);
-}
-body:not(.is-list-resizing)
-  .list-collapsed:not(.list-hover-suppressed)
-  .chat-list-pane:hover,
-.list-collapsed:not(.list-hover-suppressed) .chat-list-pane:focus-within {
-  width: var(--list-hover-width);
-  overflow: hidden;
-  background: var(--color-bg-sidebar);
-  border-right: 1px solid var(--color-border-subtle);
-  box-shadow: 12px 0 28px
-    color-mix(in srgb, var(--color-text-primary) 12%, transparent);
-}
-body:not(.is-list-resizing)
-  .list-collapsed:not(.list-hover-suppressed)
-  .chat-list-pane:hover
-  > *,
-.list-collapsed:not(.list-hover-suppressed) .chat-list-pane:focus-within > * {
-  display: flex;
-}
-body:not(.is-list-resizing)
-  .list-collapsed:not(.list-hover-suppressed)
-  .chat-list-pane:hover
-  .search-row,
-.list-collapsed:not(.list-hover-suppressed)
-  .chat-list-pane:focus-within
-  .search-row {
-  display: grid;
-}
-body:not(.is-list-resizing)
-  .list-collapsed:not(.list-hover-suppressed)
-  .chat-list-pane:hover
-  .list-collapse,
-.list-collapsed:not(.list-hover-suppressed)
-  .chat-list-pane:focus-within
-  .list-collapse {
-  display: grid;
-  right: 10px;
-  top: 10px;
-  bottom: auto;
-  background: color-mix(in srgb, var(--color-bg-panel) 72%, transparent);
-  border: 1px solid
-    color-mix(in srgb, var(--color-border-strong) 38%, transparent);
-  box-shadow: 0 6px 16px
-    color-mix(in srgb, var(--color-text-primary) 8%, transparent);
 }
 .list-collapsed .splitter-left {
   display: none;
@@ -3633,7 +3623,6 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   align-items: center;
   gap: 4px;
   min-width: 0;
-  overflow: hidden;
 }
 .terminal-tab,
 .terminal-actions button {
@@ -3747,6 +3736,57 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   border-color: var(--terminal-border);
   background: var(--terminal-active-bg);
   color: var(--terminal-active-fg);
+}
+
+/* Shell 选择器 */
+.terminal-shell-select {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.terminal-shell-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 120;
+  min-width: 150px;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--terminal-border);
+  border-radius: var(--radius-lg);
+  background: var(--terminal-panel);
+  color: var(--terminal-fg);
+  box-shadow: var(--shadow-popover);
+}
+.terminal-shell-menu strong {
+  padding: 0 4px;
+  line-height: var(--line-height-caption);
+  font-size: var(--font-size-caption);
+}
+.terminal-shell-menu button {
+  width: 100%;
+  min-height: 28px;
+  height: auto;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--terminal-fg);
+  padding: 0 8px;
+  text-align: left;
+  font-size: var(--font-size-caption);
+}
+.terminal-shell-menu button:hover {
+  border-color: var(--terminal-border);
+  background: var(--terminal-active-bg);
+  color: var(--terminal-active-fg);
+}
+.terminal-shell-menu button.unavailable {
+  opacity: 0.4;
+}
+.terminal-shell-menu-empty {
+  display: block;
+  height: 28px;
 }
 .terminal-icon-btn {
   display: inline-grid;
@@ -6932,20 +6972,12 @@ body.ask-bar-active .ask-question-card.pending {
 }
 .composer-resize-handle:hover::before,
 body.is-composer-resizing .composer-resize-handle::before {
-  background: color-mix(
-    in srgb,
-    var(--color-accent) 28%,
-    var(--color-border-strong)
-  );
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 14%, transparent);
+  background: var(--color-border-strong);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-border-strong) 24%, transparent);
 }
 .composer-resize-handle:hover::after,
 body.is-composer-resizing .composer-resize-handle::after {
-  background: color-mix(
-    in srgb,
-    var(--color-accent) 42%,
-    var(--color-border-strong)
-  );
+  background: var(--color-border-strong);
   opacity: 1;
 }
 .composer textarea {
@@ -11265,7 +11297,7 @@ body.is-composer-resizing .composer-resize-handle::after {
   padding: var(--space-5);
   position: relative;
   min-height: 320px;
-  background: var(--color-bg-muted);
+  background: var(--color-bg-panel);
 }
 
 .config-loading {
@@ -11948,7 +11980,6 @@ a.config-btn {
 :root[data-theme="dark"] .codex-session-row,
 :root[data-theme="dark"] .settings-layout,
 :root[data-theme="dark"] .settings-panel,
-:root[data-theme="dark"] .config-content,
 :root[data-theme="dark"] .feedback-body,
 :root[data-theme="dark"] .codex-import-toolbar,
 :root[data-theme="dark"] .config-provider-body {
@@ -13995,12 +14026,8 @@ a.config-btn {
 }
 
 .config-trust-row[data-trusted="true"] {
-  border-color: color-mix(
-    in srgb,
-    var(--color-accent) 18%,
-    var(--color-border-subtle)
-  );
-  background: color-mix(in srgb, var(--color-accent) 3%, var(--color-bg-panel));
+  border-color: var(--color-border-subtle);
+  background: var(--color-bg-panel);
 }
 
 .config-trust-toggle {
@@ -14040,8 +14067,8 @@ a.config-btn {
 }
 
 .config-trust-row[data-trusted="true"] .config-trust-status {
-  background: color-mix(in srgb, var(--color-success) 12%, transparent);
-  color: var(--color-success);
+  background: var(--color-bg-hover);
+  color: var(--color-text-tertiary);
 }
 
 .config-trust-empty {
@@ -14982,7 +15009,7 @@ a.config-btn {
   padding: 14px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-lg);
-  background: var(--color-bg-muted);
+  background: var(--color-bg-panel);
 }
 .skill-create-card > strong {
   color: var(--color-text-primary);
@@ -17690,7 +17717,7 @@ a.config-btn {
   padding: 14px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-lg);
-  background: var(--color-bg-muted);
+  background: var(--color-bg-panel);
 }
 .prompt-create-card > strong {
   color: var(--color-text-primary);
@@ -18720,9 +18747,7 @@ html[data-theme="dark"] .scratch-pad-md mark {
   border-bottom-right-radius: 0;
 }
 
-.wechat-shell:not(.list-collapsed) .chat-list-pane.v3-braun,
-.list-collapsed:not(.list-hover-suppressed) .chat-list-pane.v3-braun:hover,
-.list-collapsed:not(.list-hover-suppressed) .chat-list-pane.v3-braun:focus-within {
+.wechat-shell:not(.list-collapsed) .chat-list-pane.v3-braun {
   background: var(--color-bg-panel);
 }
 
@@ -18742,17 +18767,24 @@ html[data-theme="dark"] .scratch-pad-md mark {
 .chat-list-pane.v3-braun .sidebar-body .list-toolbar {
   height: auto;
   padding: 0;
+  margin: 0;
   flex-shrink: 0;
+  align-items: center;
 }
 
 .chat-list-pane.v3-braun .sidebar-body .app-badge {
   gap: 0;
-  padding: var(--space-1) 0;
+  padding: 0;
+  margin: 0;
   align-items: center;
 }
 
 .chat-list-pane.v3-braun .sidebar-body .brand-lockup {
-  gap: 10px;
+  gap: 14px;
+  align-items: center;
+  /* 保留基础右移，侧栏场景不再清零 */
+  margin: 0 0 0 8px;
+  padding: 0;
 }
 
 .chat-list-pane.v3-braun .sidebar-body .search-row {

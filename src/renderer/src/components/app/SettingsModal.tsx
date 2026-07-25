@@ -945,19 +945,7 @@ function SettingsModalContent(props: SettingsModalProps) {
 										</div>
 									)}
 								</SettingsSection>
-								{/* 代理变更与全局草稿共用保存/取消，确保点击后真正提交或回退 */}
-								<div className="setting-proxy-actions">
-									<Button onClick={saveAll} disabled={!proxyDirty} variant="primary">
-										{t("common.save")}
-									</Button>
-									<Button
-										onClick={cancelAll}
-										disabled={!proxyDirty}
-										variant="secondary"
-									>
-										{t("common.cancel")}
-									</Button>
-								</div>
+								{/* 代理变更走全局草稿：顶部统一保存/取消，不再在 tab 底部重复放按钮 */}
 							</>
 						)}
 						{/* ── 开发设置 tab（含 Web 服务） ── */}

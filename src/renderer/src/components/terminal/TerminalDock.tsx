@@ -78,7 +78,8 @@ function stripReplayBuffer(tab: TerminalTab): TerminalTab {
 }
 
 export function TerminalDock(props: {
-	agentId: string;
+	agentId?: string;
+	projectCwd?: string;
 	open: boolean;
 	closing: boolean;
 	collapsed: boolean;
@@ -93,6 +94,10 @@ export function TerminalDock(props: {
 	const fitRef = useRef<FitAddon | null>(null);
 	const activeTabIdRef = useRef("");
 	const buffersRef = useRef<Record<string, string>>({});
+	/** 无 agent 时用 "_project_" 作为终端归属 ID */
+	const agentKey = props.agentId ?? "_project_";
+	/** 无 agent 时用项目路径作为 CWD */
+	const effectiveCwd = props.agentId ? undefined : props.projectCwd;
 	/* copyNotice 已改用 toast (sonner) 实现 */
 	const [tabs, setTabs] = useState<TerminalTab[]>([]);
 	const [activeTabId, setActiveTabId] = useState("");
@@ -106,6 +111,11 @@ export function TerminalDock(props: {
 	const [appTheme, setAppTheme] = useState(
 		() => document.documentElement.dataset.theme ?? "light",
 	);
+	/** 可用 shell 列表 */
+	const [shells, setShells] = useState<
+		{ shell: string; label: string; available: boolean }[]
+	>([]);
+	const [shellMenuOpen, setShellMenuOpen] = useState(false);
 	const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
 	const theme = TERMINAL_THEMES[themeId];
 	const xtermTheme =
@@ -156,7 +166,7 @@ export function TerminalDock(props: {
 		async function loadTabs() {
 			setLoading(true);
 			try {
-				const nextTabs = await props.terminal.ensure(props.agentId);
+				const nextTabs = await props.terminal.ensure(agentKey, effectiveCwd);
 				if (cancelled) return;
 				buffersRef.current = nextTabs.reduce<Record<string, string>>(
 					(current, tab) => ({
@@ -175,7 +185,19 @@ export function TerminalDock(props: {
 		return () => {
 			cancelled = true;
 		};
-	}, [props.agentId, props.terminal, open, contentReady]);
+	}, [agentKey, props.terminal, open, contentReady]);
+
+	// 独立加载可用 shell 列表，避免与 loadTabs 耦合
+	useEffect(() => {
+		if (!open || !contentReady) return;
+		let cancelled = false;
+		void props.terminal.shells().then((list) => {
+			if (!cancelled) setShells(list);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [props.terminal, open, contentReady]);
 
 	useEffect(() => {
 		const offData = props.terminal.onData((payload) => {
@@ -278,10 +300,19 @@ export function TerminalDock(props: {
 	/* copyNotice cleanup 已禁用（改为 toast sonner） */
 
 	async function addTab() {
-		const next = await props.terminal.create(props.agentId);
+		const next = await props.terminal.create(agentKey, undefined, effectiveCwd);
 		setTabs((current) => [...current, stripReplayBuffer(next)]);
 		setActiveTabId(next.id);
 		props.onCollapsedChange(false);
+	}
+
+	/** 用指定 shell 创建新终端 tab */
+	async function addTabWithShell(shell: string) {
+		const next = await props.terminal.create(agentKey, shell, effectiveCwd);
+		setTabs((current) => [...current, stripReplayBuffer(next)]);
+		setActiveTabId(next.id);
+		props.onCollapsedChange(false);
+		setShellMenuOpen(false);
 	}
 
 	async function closeTab(tab: TerminalTab) {
@@ -399,6 +430,51 @@ export function TerminalDock(props: {
 					>
 						<Plus size={14} />
 					</button>
+					{/* Shell 选择器：点击创建指定 shell 的终端 */}
+					<div
+						style={{ position: "relative", display: "grid", placeItems: "center" }}
+					>
+						<button
+							className="terminal-icon-btn"
+							onClick={() => setShellMenuOpen((open) => !open)}
+							title={t("terminal.selectShell")}
+							disabled={loading || !contentReady}
+						>
+							<ChevronDown size={12} />
+						</button>
+						{shellMenuOpen && (
+							<div className="terminal-shell-menu">
+								<strong>{t("terminal.selectShell")}</strong>
+								{shells.length === 0 && (
+									<span className="terminal-shell-menu-empty" />
+								)}
+								{shells.map((s) => (
+									<button
+										key={s.shell}
+										className={s.available ? "" : "unavailable"}
+										onClick={() => {
+											if (!s.available) return;
+											void addTabWithShell(s.shell);
+										}}
+										title={s.available ? undefined : t("terminal.shellNotAvailable")}
+									>
+										{s.label}
+									</button>
+								))}
+							</div>
+						)}
+						{/* 点击菜单外部关闭 */}
+						{shellMenuOpen && (
+							<div
+								style={{
+									position: "fixed",
+									inset: 0,
+									zIndex: 119,
+								}}
+								onClick={() => setShellMenuOpen(false)}
+							/>
+						)}
+					</div>
 				</div>
 				<div className="terminal-actions">
 					<div

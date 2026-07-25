@@ -176,11 +176,13 @@ let previewSettings: AppSettings = {
 
 export function createPreviewApi(): PiDesktopApi {
 	const noop = (() => () => undefined) as any;
-	const createTerminalTab = async (agentId: string) => {
+	const createTerminalTab = async (agentId: string, shell?: string, cwd?: string) => {
+		const shellName = shell ?? "powershell";
+		const displayName = shellName === "git-bash" ? "Git Bash" : shellName === "bash" ? "bash" : shellName === "cmd" ? "cmd" : "PowerShell";
 		const tab: TerminalTab = {
 			id: `preview-terminal-${terminalTabs.length + 1}`,
 			agentId,
-			title: `PowerShell ${terminalTabs.length + 1}`,
+			title: `${displayName} ${terminalTabs.length + 1}`,
 			cwd: "C:/Users/14012/preview-project",
 			shell: "powershell",
 			createdAt: Date.now(),
@@ -796,10 +798,10 @@ export function createPreviewApi(): PiDesktopApi {
 		terminal: {
 			list: async (agentId) =>
 				terminalTabs.filter((tab) => tab.agentId === agentId),
-			ensure: async (agentId) => {
+			ensure: async (agentId, cwd) => {
 				const existing = terminalTabs.filter((tab) => tab.agentId === agentId);
 				if (existing.length > 0) return existing;
-				return [await createTerminalTab(agentId)];
+				return [await createTerminalTab(agentId, undefined, cwd)];
 			},
 			create: createTerminalTab,
 			input: async (tabId, data) => {
@@ -824,6 +826,11 @@ export function createPreviewApi(): PiDesktopApi {
 					terminalExitListeners.delete(callback);
 				};
 			},
+			shells: async () => [
+				{ shell: "powershell", label: "PowerShell", available: true },
+				{ shell: "pwsh", label: "pwsh", available: true },
+				{ shell: "cmd", label: "cmd", available: true },
+			],
 		},
 		feishu: {
 			connect: async () => ({ success: true, message: "预览模式" }),

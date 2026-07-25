@@ -25,7 +25,6 @@ import { extractMessageText } from "./messageContent";
 import { mergeHistoryWithPreservedMessages } from "./historyMessages";
 import {
 	assertResendRootEntry,
-	collectDescendantEntryIds,
 	findLastUserMessageLine,
 	takeActiveEntryId,
 } from "./sessionEntryIds";
@@ -123,6 +122,13 @@ export class AgentManager {
 	private readonly userInitiatedStop = new Set<string>();
 	/** 已尝试过自动重连的 agent（防止无限循环），重连成功后清除 */
 	private readonly autoRestartAttempted = new Set<string>();
+	/**
+	 * 用户主动 abort 后正在等待 pi 确认的 agent。
+	 * abort() 先加入该集合，再发送 abort RPC；在收到 agent_settled 或下一个 agent_start 之前，
+	 * 丢弃 pi 发出的延迟流式事件（text_delta、thinking_delta 等），
+	 * 防止管道中缓存的旧事件误重新激活 assistant 消息，造成“第一次点停止没停掉”的错觉。
+	 */
+	private readonly recentlyAborted = new Set<string>();
 
 	/**
 	 * 待处理的 Extension UI 请求。key 为 agentId，value 为 Map<requestId, { method, title, options }>。
@@ -1258,6 +1264,11 @@ export class AgentManager {
 				});
 			}
 		}
+
+		// 标记最近中止的 agent，用于在延迟事件到达时拦截，防止误重新激活流式状态。
+		// 必须在发送 abort RPC 之前加入集合，避免事件处理函数在 RPC 发出后、
+		// handlePiEvent 返回前收到管道中的旧事件并重建 assistant 消息。
+		this.recentlyAborted.add(agentId);
 
 		runtime.process.client
 			.request({ type: "abort" }, 10_000)
@@ -2399,44 +2410,60 @@ export class AgentManager {
 				entry = fallback.entry;
 				assertResendRootEntry(entry, msg.text, (content) => this.extractText(content));
 			}
+
+			// 兜底验证：确保定位到的 entry 是文件中最后一条同文本 user 消息。
+			// entryId 错位时（如 get_entries 与 get_messages 排列不一致）可能匹配到
+			// 更早的重复文案，误删不该删的历史内容。
+			// 纯文本消息用 findLastUserMessageLine 做二次校验；图片消息（text="[图片]"）不走此路径。
+			if (msg.text !== "[图片]") {
+				const lastMatch = findLastUserMessageLine(lines, msg.text, (content) =>
+					this.extractText(content),
+				);
+				if (lastMatch && lastMatch.lineIndex !== lineIndex) {
+					void this.appLogger?.warn("agent", "Prepare resend: entryId points to non-last duplicate, correcting", {
+						agentId,
+						messageId,
+						originalLine: lineIndex,
+						correctedLine: lastMatch.lineIndex,
+						originalEntryId: (entry as any)?.id?.slice(0, 12),
+						correctedEntryId: (lastMatch.entry as any)?.id?.slice(0, 12),
+					});
+					lineIndex = lastMatch.lineIndex;
+					entry = lastMatch.entry;
+					assertResendRootEntry(entry, msg.text, (content) => this.extractText(content));
+				}
+			}
+
 			const rootEntryId = typeof (entry as any)?.id === "string" ? String((entry as any).id) : undefined;
 			if (!rootEntryId) throw new Error("User message entryId missing");
-
-			// 只收集该用户消息及其后代（assistant/tool 等），保留 root 之前的全部历史。
-			const removeIds = collectDescendantEntryIds(lines, rootEntryId);
+			const rootParentId = (entry as any)?.parentId;
 
 			await this.backupSessionFile(sessionPath);
 
-			for (let i = 0; i < lines.length; i++) {
-				const line = lines[i]?.trim();
-				if (!line) continue;
-				try {
-					const parsed = JSON.parse(line) as { id?: string; type?: string };
-					if (!parsed?.id || parsed.type === "deleted") continue;
-					if (!removeIds.has(parsed.id)) continue;
-					lines[i] = JSON.stringify({
-						type: "deleted",
-						originalEntryId: parsed.id,
-						ts: Date.now(),
-						reason: "resend-truncate",
-					});
-				} catch {
-					// 跳过无法解析的行
+			// 只删该用户消息条目本身；它的直系子节点（若有）通过 re-parenting 指向父节点，
+			// 避免 orphan 导致 pi 丢弃整个后代分支。
+			// 这样之前的 assistant 回复内容得以保留，重发后看起来就像原地替换了失败消息。
+			if (rootEntryId && rootParentId !== undefined) {
+				for (let i = 0; i < lines.length; i++) {
+					if (i === lineIndex) continue;
+					const childLine = lines[i]?.trim();
+					if (!childLine) continue;
+					try {
+						const child = JSON.parse(childLine);
+						if (child.parentId === rootEntryId) {
+							child.parentId = rootParentId;
+							lines[i] = JSON.stringify(child);
+						}
+					} catch { /* 跳过无法解析的行 */ }
 				}
 			}
 
-			// 兜底：若 entry 定位到了行但 id 集合异常，至少截掉该行本身。
-			if (lineIndex >= 0 && lineIndex < lines.length) {
-				const current = lines[lineIndex]?.trim();
-				if (current && !current.includes('"type":"deleted"')) {
-					lines[lineIndex] = JSON.stringify({
-						type: "deleted",
-						originalEntryId: rootEntryId,
-						ts: Date.now(),
-						reason: "resend-truncate",
-					});
-				}
-			}
+			lines[lineIndex] = JSON.stringify({
+				type: "deleted",
+				originalEntryId: rootEntryId,
+				ts: Date.now(),
+				reason: "resend-truncate",
+			});
 
 			await writeFile(sessionHostPath, lines.join("\n"), "utf8");
 
@@ -2469,7 +2496,7 @@ export class AgentManager {
 			void this.appLogger?.info("agent", "Prepare resend completed", {
 				agentId,
 				messageId,
-				removed: removeIds.size,
+				removed: 1,
 				elapsedMs: Date.now() - startTime,
 			});
 
@@ -2743,6 +2770,9 @@ export class AgentManager {
 		}
 
 		if (typed.type === "agent_start" && runtime) {
+			// agent_start 表示一轮新的 agent run 开始，abort 后的延迟事件不会再到达，
+			// 因此清理最近中止标记，允许新对话正常接收流式事件。
+			this.recentlyAborted.delete(agentId);
 			runtime.tab.status = "running";
 			this.activeAssistantMessageIds.delete(agentId);
 			this.toolMessageIds.delete(agentId);
@@ -2752,13 +2782,18 @@ export class AgentManager {
 		}
 
 		if (typed.type === "message_start" && typed.message?.role === "assistant") {
+			// abort 后 pi 管道中缓存的 assistant 事件应丢弃，防止误重新激活流式状态。
+			if (this.recentlyAborted.has(agentId) && !this.activeAssistantMessageIds.has(agentId)) {
+				return;
+			}
 			this.beginAssistantMessage(agentId);
 			this.upsertAssistantMessage(agentId, typed.message);
 		}
 
 		if (typed.type === "auto_retry_start") {
 			this.upsertRetryStatusMessage(agentId, typed, "running");
-			if (runtime) {
+			// 用户已主动中止时不重新激活 running 状态，避免 abort 后 auto-retry 事件误覆盖 state
+			if (runtime && !this.recentlyAborted.has(agentId)) {
 				// pi 在等待指数退避期间可能短暂结束一轮 agent run；桌面端保持 running，
 				// 让用户明确知道当前不是最终失败，而是在等待下一次自动重试。
 				runtime.tab.status = "running";
@@ -2772,13 +2807,22 @@ export class AgentManager {
 				typed,
 				typed.success ? "success" : "error",
 			);
+			// 自动重试最终失败：如果用户没有主动中止，则保持 agent 的 error 状态
+			// 不被后续 agent_settled 覆盖，确保侧边栏状态显示失败标记。
+			if (!typed.success && runtime && !this.recentlyAborted.has(agentId)) {
+				runtime.tab.status = "error";
+				const reason = typed.finalError ?? typed.errorMessage ?? "API 请求失败";
+				this.addMessage(agentId, "error", `请求失败：${String(reason)}`);
+				this.emitState();
+			}
 		}
 
 		// 自动/手动压缩事件（pi 在自动或手动压缩完成后会发出这些事件），
 		// 用于记录压缩耗时和结果，便于排查压缩性能问题。
 		if (typed.type === "compaction_start") {
 			this.rpcCompactingAgents.add(agentId);
-			if (runtime) {
+			// 用户已主动中止或出错时不重新激活 running 状态
+			if (runtime && !this.recentlyAborted.has(agentId) && runtime.tab.status !== "error") {
 				// 自动压缩在 agent_end 之后触发：Pi 仍在改写上下文，但不会再发 agent_start。
 				// 因此桌面端必须主动保持 running，阻止用户误以为空闲并继续发送消息。
 				runtime.tab.status = "running";
@@ -2796,7 +2840,8 @@ export class AgentManager {
 				// compaction 会向 session JSONL 写入新的边界记录；立即重载消息，
 				// 避免前端仍展示压缩前分支，下一轮继续对话时看起来像“断在旧会话”。
 				void this.loadMessages(agentId).catch(() => undefined);
-				if (runtime.tab.status !== "error") {
+				// 用户已主动中止或出错时不重新激活 running 状态
+				if (!this.recentlyAborted.has(agentId) && runtime.tab.status !== "error") {
 					// compaction_end 之后 Pi 仍可能因 overflow retry 或 queued follow-up 自动继续。
 					// 只有 agent_settled 才表示不会再自动发起下一轮，不能在这里提前 idle。
 					runtime.tab.status = "running";
@@ -2865,7 +2910,8 @@ export class AgentManager {
 					);
 				}
 				// 重试中保持 running，不能误置为 idle/error，否则宠物聚合状态会提前转 done/failed
-				if (runtime) runtime.tab.status = "running";
+				// 用户已主动中止时不覆盖 state，避免 abort 后收到此事件又重新激活 running
+				if (runtime && !this.recentlyAborted.has(agentId)) runtime.tab.status = "running";
 			} else if (errorMsg) {
 				this.addDetailedErrorMessage(agentId, String(errorMsg));
 				// 有错误且不会重试 → Agent 进入 error 态，宠物聚合为 failed（行5），
@@ -2893,6 +2939,8 @@ export class AgentManager {
 		}
 
 		if (typed.type === "agent_settled") {
+			// agent_settled 是 Pi 的最终稳定点，清理最近中止标记，确保后续新消息不受影响。
+			this.recentlyAborted.delete(agentId);
 			if (runtime && runtime.tab.status !== "error" && runtime.tab.status !== "closed") {
 				// agent_settled 是 Pi 的最终稳定点：没有自动重试、自动压缩、压缩 retry
 				// 或 queued follow-up 会继续执行，此时才允许恢复 idle 并通知用户完成。
@@ -2919,6 +2967,10 @@ export class AgentManager {
 			typed.type === "message_update" &&
 			typed.assistantMessageEvent
 		) {
+			// abort 后 pi 管道的延迟事件（text_delta、thinking_delta 等）不应继续更新 UI。
+			if (this.recentlyAborted.has(agentId) && !this.activeAssistantMessageIds.has(agentId)) {
+				return;
+			}
 			this.handleAssistantMessageEvent(agentId, typed);
 		}
 
@@ -2934,6 +2986,10 @@ export class AgentManager {
 		}
 
 		if (typed.type === "tool_execution_start") {
+			// abort 后 pi 管道的延迟工具事件应丢弃，避免重新激活流式状态。
+			if (this.recentlyAborted.has(agentId) && !this.activeToolCallsByAgent.has(agentId)) {
+				return;
+			}
 			this.upsertToolMessage(agentId, typed, "running");
 			// 并行工具会先连续发多个 start；按 toolCallId 追踪，只有最后一个 end 才能表示工具阶段完成。
 			const toolName = typed.toolName ?? "tool";
@@ -2953,6 +3009,10 @@ export class AgentManager {
 		}
 
 		if (typed.type === "tool_execution_end") {
+			// abort 后 pi 管道的延迟工具事件应丢弃。
+			if (this.recentlyAborted.has(agentId) && !this.activeToolCallsByAgent.has(agentId)) {
+				return;
+			}
 			this.upsertToolMessage(
 				agentId,
 				typed,
@@ -2979,6 +3039,10 @@ export class AgentManager {
 		}
 
 		if (typed.type === "tool_execution_update") {
+			// abort 后 pi 管道的延迟工具事件应丢弃。
+			if (this.recentlyAborted.has(agentId) && !this.activeToolCallsByAgent.has(agentId)) {
+				return;
+			}
 			this.upsertToolMessage(agentId, typed, "running");
 		}
 

@@ -228,6 +228,7 @@ export const ipcChannels = {
 	terminalClose: "terminal:close",
 	terminalData: "terminal:data",
 	terminalExit: "terminal:exit",
+	terminalShells: "terminal:shells",
 
 	// ===== 飞书桥接 =====
 	feishuConnect: "feishu:connect",
