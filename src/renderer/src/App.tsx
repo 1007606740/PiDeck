@@ -8867,7 +8867,7 @@ filePath={gitDrawerDiff.filePath}
           message={updateError}
           releasesUrl={appInfo.releasesUrl}
           onClose={() => setUpdateError(null)}
-          onOpenRelease={() => api.app.openExternal(appInfo.releasesUrl)}
+          onOpenRelease={() => api.app.openExternal(appInfo.releasesUrl, true)}
         />
       </Suspense>
       )}
@@ -8877,7 +8877,7 @@ filePath={gitDrawerDiff.filePath}
           version={upToDateVersion}
           releasesUrl={appInfo.releasesUrl}
           onClose={() => setUpToDateVersion(null)}
-          onOpenRelease={() => api.app.openExternal(appInfo.releasesUrl)}
+          onOpenRelease={() => api.app.openExternal(appInfo.releasesUrl, true)}
         />
       </Suspense>
       )}
