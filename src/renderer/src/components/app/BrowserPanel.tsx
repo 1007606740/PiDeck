@@ -90,6 +90,8 @@ function getInitialActiveTab(): TabEntry {
 let pendingNavigateUrl: string | null = null;
 
 export function navigateTo(url: string) {
+	// 清除旧 tab，避免已有默认 tab 时产生两个 tab
+	moduleState.tabs = [];
 	// 每次外部导航创建新 tab，避免多个链接复用同一个 tab
 	const id = genTabId();
 	moduleState.tabs.push({ id, title: "PiDeck", url });
@@ -119,7 +121,7 @@ export function BrowserPanel(props: {
 	onMinimize?: () => void;
 }) {
 	const { onClose, onMinimize, onToggleFullscreen } = props;
-	const initialTab = getInitialActiveTab();
+	const [initialTab] = useState(() => getInitialActiveTab());
 	const webviewRef = useRef<any>(null);
 	const defaultUARef = useRef<string | null>(null);
 	const [tabs, setTabs] = useState<TabEntry[]>(() => [...moduleState.tabs]);
@@ -252,6 +254,16 @@ export function BrowserPanel(props: {
 			webviewReadyRef.current = false;
 		};
 	}, [applyDeviceUserAgent, updateActiveTab, url]);
+
+	// BrowserPanel 卸载时清空 tab 状态，避免下次挂载时旧 tab 残留
+	useEffect(() => {
+		return () => {
+			moduleState.tabs = [];
+			moduleState.activeTabId = null;
+			moduleState.navigateKey = 0;
+			pendingNavigateUrl = null;
+		};
+	}, []);
 
 	const navigate = useCallback(
 		(targetUrl?: string) => {
