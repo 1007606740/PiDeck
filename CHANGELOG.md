@@ -4,7 +4,7 @@
 
 All notable changes to PiDeck are documented here.
 
-## v0.6.6 - 2026-07-24
+## v0.6.6 - 2026-07-25
 
 ### 🚀 New Features
 
@@ -138,6 +138,11 @@ All notable changes to PiDeck are documented here.
   hide background card when dialog open, filter out Pi's default ✎ option.
 - **Message CPA_DONE marker cleanup** — Strips `CPA_DONE` from message end.
 - **User message edit** — Edited text backfilled to composer for re-sending.
+- **Feishu link "Cannot find package @larksuiteoapi/node-sdk" after packaging** —
+  The `afterPack` cleanup script was deleting the CJS build (`lib/`) assuming
+  `await import()` would use the ESM entry, but the package has no `exports` field
+  so Node.js resolves via `main` → `./lib/index.js`. Removed the deletion to fix
+  runtime resolution.
 
 ### 🐛 Terminal Fixes
 

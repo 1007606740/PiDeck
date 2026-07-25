@@ -4,7 +4,7 @@
 
 这里记录 PiDeck 各版本的重要变化。
 
-## v0.6.6 - 2026-07-24
+## v0.6.6 - 2026-07-25
 
 ### 🚀 新功能
 
@@ -93,6 +93,10 @@
   过滤 Pi 自带的 ✎ 选项。
 - **消息 CPA_DONE 标记清理** — 从消息末尾移除 `CPA_DONE`。
 - **用户消息编辑** — 编辑后回填到输入框重新发送。
+- **飞书链接打包后 "Cannot find package @larksuiteoapi/node-sdk"** —
+  `afterPack` 脚本删除了 CJS 构建产物 `lib/`，但该包没有 `exports` 字段，
+  Node.js 的 `await import()` 仍通过 `main` 字段（`./lib/index.js`）解析，
+  删除后导致运行时找不到模块。已移除该删除逻辑以修复打包后的飞书功能。
 
 ### 🐛 终端问题修复
 
