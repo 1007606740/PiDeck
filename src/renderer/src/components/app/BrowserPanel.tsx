@@ -92,7 +92,8 @@ let pendingNavigateUrl: string | null = null;
 export function navigateTo(url: string) {
 	// 每次外部导航创建新 tab，避免多个链接复用同一个 tab
 	const id = genTabId();
-	moduleState.tabs.push({ id, title: "PiDeck", url });
+	// 初始 title 留空，tab 渲染 fallback 到 url，等 page-title-updated 更新真实标题
+	moduleState.tabs.push({ id, title: "", url });
 	moduleState.activeTabId = id;
 	moduleState.navigateKey += 1;
 	// 直接设 pendingUrl，轮询会立即检测到，无需等 re-render
@@ -220,14 +221,23 @@ export function BrowserPanel(props: {
 			const progress = (event as unknown as WebviewEvent<"load-progress">).progress;
 			setLoadProgress(progress);
 		};
+		// page-title-updated 只接收真实 title，不 fallback 到 url/DEFAULT_HOME，
+		// 避免 tab 标题闪烁。初始空 title 由 tab 渲染 fallback 到 url。
 		const onPageTitleUpdated = (event: Event) => {
 			const title = (event as unknown as WebviewEvent<"page-title-updated">).title;
-			updateActiveTab({ title: title || url || DEFAULT_HOME });
+			if (title) {
+				updateActiveTab({ title });
+			}
 		};
 		const onNewWindow = (event: Event) => {
 			const evt = event as unknown as WebviewEvent<"new-window">;
-			if (!evt.url.startsWith("http://") && !evt.url.startsWith("https://")) {
-				evt.preventDefault();
+			// 始终阻止默认弹窗行为，由我们接管分发
+			evt.preventDefault();
+			if (evt.url.startsWith("http://") || evt.url.startsWith("https://")) {
+				// 页面内 target="_blank" 或 window.open 链接在浏览器新 tab 中打开
+				navigateTo(evt.url);
+			} else {
+				// 非 http 协议（mailto: 等）走系统默认浏览器
 				void window.piDesktop.browser.openExternal(evt.url);
 			}
 		};
@@ -253,15 +263,9 @@ export function BrowserPanel(props: {
 		};
 	}, [applyDeviceUserAgent, updateActiveTab, url]);
 
-	// BrowserPanel 卸载时清空 tab 状态，避免下次挂载时旧 tab 残留
-	useEffect(() => {
-		return () => {
-			moduleState.tabs = [];
-			moduleState.activeTabId = null;
-			moduleState.navigateKey = 0;
-			pendingNavigateUrl = null;
-		};
-	}, []);
+	// 不再在卸载时清空 moduleState：折叠抽屉、切换面板后重新打开仍保留之前的 tab 状态。
+	// 关闭最后一个 tab 时 closeTab 已处理 moduleState 清理并调用 onClose。
+	// 组件首次挂载时如果 tabs 为空，ensureInitialTab 会创建默认页面。
 
 	const navigate = useCallback(
 		(targetUrl?: string) => {
@@ -301,12 +305,14 @@ export function BrowserPanel(props: {
 		const interval = window.setInterval(() => {
 			if (!pendingNavigateUrl) return;
 			const url = pendingNavigateUrl;
-			pendingNavigateUrl = null;
 			moduleState.navigateKey = 0;
 			const wv = webviewRef.current;
 			if (!wv) return;
-			// 如果 webview 正在加载中，跳过本次轮询，避免并发 loadURL 导致 ERR_ABORTED
+			// 如果 webview 正在加载中，跳过本次轮询保留 pendingNavigateUrl，
+			// 下次轮询会重试，避免 URL 被静默丢弃
 			if (wv.isLoading && wv.isLoading()) return;
+			// 通过加载检查后才消费 URL，防止加载中时丢请求
+			pendingNavigateUrl = null;
 			const activeTab = moduleState.tabs.find((t) => t.id === moduleState.activeTabId);
 			if (activeTab) {
 				applyDeviceUserAgent(wv, moduleState.device);

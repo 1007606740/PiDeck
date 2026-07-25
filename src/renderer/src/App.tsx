@@ -25,7 +25,6 @@ import {
   MessageCircle,
   MessageSquare,
   PanelLeftClose,
-  PanelLeftOpen,
   Search,
   Play,
   Plus,
@@ -52,6 +51,7 @@ import {
   HatGlasses,
   Copy,
   X,
+  PanelLeft,
 } from "lucide-react";
 import { subscribeToNotice, showNotice } from "./utils/notice";
 import { createPreviewApi } from "./previewApi";
@@ -1298,8 +1298,6 @@ export function App() {
   const [terminalDockAgentId, setTerminalDockAgentId] = useState<string>();
   const terminalDockCloseTimerRef = useRef<number | null>(null);
   const [listCollapsed, setListCollapsed] = useState(false);
-  const [listHoverRevealSuppressed, setListHoverRevealSuppressed] =
-    useState(false);
   const [drawerCollapsed, setDrawerCollapsed] = useState(false);
   const [drawerPinnedByProject, setDrawerPinnedByProject] = useState<
     Record<string, DrawerPanel>
@@ -5849,17 +5847,9 @@ export function App() {
     const nextCollapsed = !listCollapsed;
     if (!nextCollapsed) setListWidth(DEFAULT_LIST_WIDTH);
     if (nextCollapsed) {
-      // 点击折叠后鼠标和焦点仍在侧栏内;先释放焦点并抑制 hover,避免刚折叠就被 CSS 展开。
       (document.activeElement as HTMLElement | null)?.blur();
     }
-    setListHoverRevealSuppressed(nextCollapsed);
     setListCollapsed(nextCollapsed);
-  }
-
-  function releaseListHoverSuppression(event: PointerEvent<HTMLDivElement>) {
-    if (listCollapsed && listHoverRevealSuppressed && event.clientX > 24) {
-      setListHoverRevealSuppressed(false);
-    }
   }
 
   /** HTML 文件预览：在内置浏览器中打开 */
@@ -5885,13 +5875,11 @@ export function App() {
         "wechat-shell",
         drawer ? "drawer-open" : "",
         listCollapsed ? "list-collapsed" : "",
-        listHoverRevealSuppressed ? "list-hover-suppressed" : "",
         drawerCollapsed ? "drawer-collapsed" : "",
         settings.useNativeTitleBar ? "" : "custom-titlebar-enabled",
       ]
         .filter(Boolean)
         .join(" ")}
-      onPointerMove={releaseListHoverSuppression}
       style={
         {
           "--list-width": `${listCollapsed ? 0 : listWidth}px`,
@@ -5906,6 +5894,19 @@ export function App() {
     >
       {!settings.useNativeTitleBar && (
         <div className="window-drag-layer" aria-hidden="true" />
+      )}
+      {!settings.useNativeTitleBar && (
+        <div className="window-controls-left">
+          <button
+            type="button"
+            className={`window-control sidebar-toggle${listCollapsed ? " collapsed" : ""}`}
+            aria-label={listCollapsed ? t("app.expandList") : t("app.collapseList")}
+            title={listCollapsed ? t("app.expandList") : t("app.collapseList")}
+            onClick={toggleListCollapsed}
+          >
+            <PanelLeft size={15} strokeWidth={2.2} aria-hidden="true" />
+          </button>
+        </div>
       )}
       {!settings.useNativeTitleBar && (
         <div className="window-controls" aria-label={t("app.windowControls")}>
@@ -5956,9 +5957,6 @@ export function App() {
       )}
       <aside
         className="chat-list-pane v3-braun"
-        onPointerLeave={() => {
-          if (listHoverRevealSuppressed) setListHoverRevealSuppressed(false);
-        }}
       >
         <div className="sidebar-body">
           <div className="list-toolbar">
@@ -6727,19 +6725,7 @@ export function App() {
                 <Globe size={17} />
               </button>
             </div>
-            <button
-              className="icon-button sidebar-collapse-logo"
-              title={
-                listCollapsed ? t("app.expandList") : t("app.collapseList")
-              }
-              onClick={toggleListCollapsed}
-            >
-              {listCollapsed ? (
-                <PanelLeftOpen size={18} strokeWidth={1.9} />
-              ) : (
-                <PanelLeftClose size={18} strokeWidth={1.9} />
-              )}
-            </button>
+
           </div>
         )}
         </div>

@@ -900,7 +900,6 @@ select:focus-visible {
   position: relative;
   --list-width: 190px;
   --list-expanded-width: 190px;
-  --list-hover-width: 250px;
   --drawer-width: 320px;
   /* 抽屉列宽由 JS 按实际展开状态注入，短过渡与面板滑动同步。 */
   --drawer-col-w: 0px;
@@ -946,6 +945,18 @@ body.is-resizing .wechat-shell {
   grid-template-columns: repeat(4, 50px);
   height: var(--window-drag-height);
   background: var(--color-bg-sidebar);
+  -webkit-app-region: no-drag;
+}
+/* 左侧标题栏按钮（如侧边栏切换），布局与右侧 window-controls 对称 */
+.window-controls-left {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 920;
+  display: grid;
+  grid-template-columns: repeat(1, 50px);
+  height: var(--window-drag-height);
+  background: transparent;
   -webkit-app-region: no-drag;
 }
 .window-control {
@@ -1429,50 +1440,6 @@ body.is-resizing .wechat-shell {
   bottom: 0;
   width: 6px;
   background: color-mix(in srgb, var(--color-border-strong) 42%, transparent);
-}
-body:not(.is-list-resizing)
-  .list-collapsed:not(.list-hover-suppressed)
-  .chat-list-pane:hover,
-.list-collapsed:not(.list-hover-suppressed) .chat-list-pane:focus-within {
-  width: var(--list-hover-width);
-  overflow: hidden;
-  background: var(--color-bg-sidebar);
-  border-right: 1px solid var(--color-border-subtle);
-  box-shadow: 12px 0 28px
-    color-mix(in srgb, var(--color-text-primary) 12%, transparent);
-}
-body:not(.is-list-resizing)
-  .list-collapsed:not(.list-hover-suppressed)
-  .chat-list-pane:hover
-  > *,
-.list-collapsed:not(.list-hover-suppressed) .chat-list-pane:focus-within > * {
-  display: flex;
-}
-body:not(.is-list-resizing)
-  .list-collapsed:not(.list-hover-suppressed)
-  .chat-list-pane:hover
-  .search-row,
-.list-collapsed:not(.list-hover-suppressed)
-  .chat-list-pane:focus-within
-  .search-row {
-  display: grid;
-}
-body:not(.is-list-resizing)
-  .list-collapsed:not(.list-hover-suppressed)
-  .chat-list-pane:hover
-  .list-collapse,
-.list-collapsed:not(.list-hover-suppressed)
-  .chat-list-pane:focus-within
-  .list-collapse {
-  display: grid;
-  right: 10px;
-  top: 10px;
-  bottom: auto;
-  background: color-mix(in srgb, var(--color-bg-panel) 72%, transparent);
-  border: 1px solid
-    color-mix(in srgb, var(--color-border-strong) 38%, transparent);
-  box-shadow: 0 6px 16px
-    color-mix(in srgb, var(--color-text-primary) 8%, transparent);
 }
 .list-collapsed .splitter-left {
   display: none;
@@ -11280,7 +11247,7 @@ body.is-composer-resizing .composer-resize-handle::after {
   padding: var(--space-5);
   position: relative;
   min-height: 320px;
-  background: var(--color-bg-muted);
+  background: var(--color-bg-panel);
 }
 
 .config-loading {
@@ -11963,7 +11930,6 @@ a.config-btn {
 :root[data-theme="dark"] .codex-session-row,
 :root[data-theme="dark"] .settings-layout,
 :root[data-theme="dark"] .settings-panel,
-:root[data-theme="dark"] .config-content,
 :root[data-theme="dark"] .feedback-body,
 :root[data-theme="dark"] .codex-import-toolbar,
 :root[data-theme="dark"] .config-provider-body {
@@ -14010,12 +13976,8 @@ a.config-btn {
 }
 
 .config-trust-row[data-trusted="true"] {
-  border-color: color-mix(
-    in srgb,
-    var(--color-accent) 18%,
-    var(--color-border-subtle)
-  );
-  background: color-mix(in srgb, var(--color-accent) 3%, var(--color-bg-panel));
+  border-color: var(--color-border-subtle);
+  background: var(--color-bg-panel);
 }
 
 .config-trust-toggle {
@@ -14055,8 +14017,8 @@ a.config-btn {
 }
 
 .config-trust-row[data-trusted="true"] .config-trust-status {
-  background: color-mix(in srgb, var(--color-success) 12%, transparent);
-  color: var(--color-success);
+  background: var(--color-bg-hover);
+  color: var(--color-text-tertiary);
 }
 
 .config-trust-empty {
@@ -14997,7 +14959,7 @@ a.config-btn {
   padding: 14px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-lg);
-  background: var(--color-bg-muted);
+  background: var(--color-bg-panel);
 }
 .skill-create-card > strong {
   color: var(--color-text-primary);
@@ -17705,7 +17667,7 @@ a.config-btn {
   padding: 14px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-lg);
-  background: var(--color-bg-muted);
+  background: var(--color-bg-panel);
 }
 .prompt-create-card > strong {
   color: var(--color-text-primary);
@@ -18735,9 +18697,7 @@ html[data-theme="dark"] .scratch-pad-md mark {
   border-bottom-right-radius: 0;
 }
 
-.wechat-shell:not(.list-collapsed) .chat-list-pane.v3-braun,
-.list-collapsed:not(.list-hover-suppressed) .chat-list-pane.v3-braun:hover,
-.list-collapsed:not(.list-hover-suppressed) .chat-list-pane.v3-braun:focus-within {
+.wechat-shell:not(.list-collapsed) .chat-list-pane.v3-braun {
   background: var(--color-bg-panel);
 }
 
