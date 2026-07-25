@@ -178,6 +178,8 @@ community testing environment 🎉
 
 > 💬 **Join our QQ group for feedback & discussion: 1026218644**
 
+Thanks to all users who submitted suggestions and bug reports for PiDeck! 🙏
+
 ---
 
 
