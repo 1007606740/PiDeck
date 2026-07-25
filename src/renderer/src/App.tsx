@@ -298,6 +298,58 @@ function isAbsoluteFilePath(path: string) {
   return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("/");
 }
 
+/** 侧栏展开项目 id（含 chat）；localStorage 作首屏缓存，settings.json 作跨进程可靠落盘 */
+const SIDEBAR_EXPANDED_PROJECTS_KEY = "pid:sidebar-expanded-projects";
+/** 旧版「折叠集合」key，仅用于一次性迁移 */
+const SIDEBAR_COLLAPSED_PROJECTS_LEGACY_KEY = "pid:sidebar-collapsed-projects";
+/** 与主进程 ProjectStore 内置 chat id 保持一致 */
+const BUILTIN_CHAT_PROJECT_ID = "builtin-chat";
+
+function parseProjectIdArray(raw: string | null): string[] | null {
+	if (raw === null) return null;
+	try {
+		const parsed = JSON.parse(raw);
+		if (!Array.isArray(parsed)) return null;
+		return parsed.filter((id): id is string => typeof id === "string");
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * 读取侧栏展开项目 id。
+ * 优先新 key；若仅有旧折叠 key 则返回 null，等拿到项目列表后再反演迁移。
+ */
+function loadExpandedSidebarProjectsFromLocal(): string[] | null {
+	const expanded = parseProjectIdArray(
+		localStorage.getItem(SIDEBAR_EXPANDED_PROJECTS_KEY),
+	);
+	if (expanded) return expanded;
+	// 旧 key 存在但还不能反演（缺项目全集）→ 交给后续迁移
+	if (localStorage.getItem(SIDEBAR_COLLAPSED_PROJECTS_LEGACY_KEY) !== null) {
+		return null;
+	}
+	return null;
+}
+
+function saveExpandedSidebarProjectsToLocal(ids: Set<string>) {
+	try {
+		localStorage.setItem(
+			SIDEBAR_EXPANDED_PROJECTS_KEY,
+			JSON.stringify([...ids]),
+		);
+		// 迁移完成后清掉旧 key，避免两套数据源互相打架
+		localStorage.removeItem(SIDEBAR_COLLAPSED_PROJECTS_LEGACY_KEY);
+	} catch {
+		// localStorage 不可用时静默忽略；settings.json 仍会落盘
+	}
+}
+
+/** 默认只展开内置 chat，与「启动不全量扫会话」策略一致 */
+function defaultExpandedSidebarProjects(): Set<string> {
+	return new Set([BUILTIN_CHAT_PROJECT_ID]);
+}
+
 /** 从 localStorage 恢复会话来源过滤配置 */
 function loadSessionSourceFilter(): Record<string, Set<"pi" | "codex" | "claude" | "opencode"> | null> {
 	try {
@@ -505,11 +557,17 @@ export function App() {
   activeAgentIdRef.current = activeAgentId;
   const agentsRef = useRef<AgentTab[]>(agents);
   agentsRef.current = agents;
-  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(
-    new Set(),
+  // 侧栏展开集合：有 id = 展开。localStorage 首屏缓存 + settings.json 可靠落盘（dev 强杀也不丢）。
+  const [expandedSidebarProjects, setExpandedSidebarProjects] = useState<Set<string>>(
+    () => {
+      const cached = loadExpandedSidebarProjectsFromLocal();
+      return cached ? new Set(cached) : defaultExpandedSidebarProjects();
+    },
   );
-  const collapsedProjectsRef = useRef(collapsedProjects);
-  collapsedProjectsRef.current = collapsedProjects;
+  const expandedSidebarProjectsRef = useRef(expandedSidebarProjects);
+  expandedSidebarProjectsRef.current = expandedSidebarProjects;
+  /** 已从 settings.json 合并过展开状态，避免被后续 settings 刷新覆盖用户刚点的展开 */
+  const expandedSidebarFromSettingsRef = useRef(false);
   const [activeAgentByProject, setActiveAgentByProject] = useState<
     Record<string, string>
   >({});
@@ -2086,6 +2144,21 @@ export function App() {
     void api.settings.get().then((next) => {
       setSettings(next);
       setCustomPiPath(next.customPiPath ?? "");
+      // settings.json 为展开状态的权威来源（dev 强杀后 localStorage 可能丢写入）
+      if (
+        !expandedSidebarFromSettingsRef.current &&
+        Array.isArray(next.sidebarExpandedProjectIds)
+      ) {
+        expandedSidebarFromSettingsRef.current = true;
+        const fromSettings = new Set(
+          next.sidebarExpandedProjectIds.filter(
+            (id): id is string => typeof id === "string",
+          ),
+        );
+        expandedSidebarProjectsRef.current = fromSettings;
+        setExpandedSidebarProjects(fromSettings);
+        saveExpandedSidebarProjectsToLocal(fromSettings);
+      }
       if (!Object.values(next.externalEditors).some((editor) => editor.command)) {
         void api.editors
           .redetect()
@@ -2438,6 +2511,46 @@ export function App() {
     return off;
   }, []);
 
+  /**
+   * 更新侧栏展开集合并双写持久化：
+   * 1) localStorage：同步，首屏可读
+   * 2) settings.json：主进程 writeFile，dev 强杀/重启也不丢
+   */
+  const commitExpandedSidebarProjects = useCallback((next: Set<string>) => {
+    // 标记已有权威写入，防止启动时迟到的 settings.get 用旧值覆盖用户刚点的展开
+    expandedSidebarFromSettingsRef.current = true;
+    expandedSidebarProjectsRef.current = next;
+    setExpandedSidebarProjects(next);
+    saveExpandedSidebarProjectsToLocal(next);
+    void api.settings
+      .update({ sidebarExpandedProjectIds: [...next] })
+      .then((saved) => {
+        // 只合并本字段，避免覆盖用户在设置页刚改的其它项的本地缓存
+        setSettings((current) => ({
+          ...current,
+          sidebarExpandedProjectIds: saved.sidebarExpandedProjectIds,
+        }));
+      })
+      .catch(() => undefined);
+  }, []);
+
+  /** 展开/折叠某个项目；forceExpand=true 时只展开不切换 */
+  const setProjectSidebarExpanded = useCallback(
+    (projectId: string, forceExpand?: boolean) => {
+      const prev = expandedSidebarProjectsRef.current;
+      const next = new Set(prev);
+      const shouldExpand = forceExpand ?? !next.has(projectId);
+      if (shouldExpand) next.add(projectId);
+      else next.delete(projectId);
+      const unchanged =
+        next.size === prev.size && [...next].every((id) => prev.has(id));
+      if (unchanged) return next;
+      commitExpandedSidebarProjects(next);
+      return next;
+    },
+    [commitExpandedSidebarProjects],
+  );
+
   useEffect(() => {
     const projectIds = new Set(projects.map((project) => project.id));
     setSessionsByProject((current) =>
@@ -2461,13 +2574,56 @@ export function App() {
         ),
       ),
     );
-    // 启动时只加载 chat 项目的会话,其他项目延迟到展开时加载
-    for (const project of projects) {
-      if (project.kind === "chat") {
-        void refreshProjectSessions(project.id).catch(() => undefined);
+
+    if (projects.length === 0) return;
+
+    // 旧版 collapsed key → expanded 迁移（仅一次）
+    const legacyCollapsed = parseProjectIdArray(
+      localStorage.getItem(SIDEBAR_COLLAPSED_PROJECTS_LEGACY_KEY),
+    );
+    const hasExpandedCache =
+      localStorage.getItem(SIDEBAR_EXPANDED_PROJECTS_KEY) !== null;
+    if (legacyCollapsed && !hasExpandedCache && !expandedSidebarFromSettingsRef.current) {
+      const migrated = new Set(
+        projects
+          .map((project) => project.id)
+          .filter((id) => !legacyCollapsed.includes(id)),
+      );
+      // 至少保留 chat，避免迁移后侧栏全空
+      if (projectIds.has(BUILTIN_CHAT_PROJECT_ID)) {
+        migrated.add(BUILTIN_CHAT_PROJECT_ID);
+      }
+      commitExpandedSidebarProjects(migrated);
+    } else {
+      // 修剪已删除项目 id，不自动展开新建项目，也不把用户主动折叠的 chat 加回来
+      const prev = expandedSidebarProjectsRef.current;
+      const pruned = new Set([...prev].filter((id) => projectIds.has(id)));
+      if (pruned.size !== prev.size || [...pruned].some((id) => !prev.has(id))) {
+        expandedSidebarProjectsRef.current = pruned;
+        setExpandedSidebarProjects(pruned);
+        saveExpandedSidebarProjectsToLocal(pruned);
       }
     }
-  }, [projectIdsKey]);
+
+    // 按展开状态恢复会话列表
+    const expanded = expandedSidebarProjectsRef.current;
+    for (const project of projects) {
+      if (!expanded.has(project.id)) continue;
+      if (project.id in sessionsByProject) continue;
+      void refreshProjectSessions(project.id).catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectIdsKey, commitExpandedSidebarProjects]);
+
+  // 展开集合变化时，为新展开且无缓存的项目补加载会话
+  useEffect(() => {
+    for (const project of projects) {
+      if (!expandedSidebarProjects.has(project.id)) continue;
+      if (project.id in sessionsByProject) continue;
+      void refreshProjectSessions(project.id).catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedSidebarProjects]);
 
   useEffect(() => {
     // 当禁用版本检测时，不启动定时和启动后的自动检测
@@ -2493,7 +2649,8 @@ export function App() {
   }, [displayAgents]);
 
   useEffect(() => {
-    if (!activeProjectId || collapsedProjects.has(activeProjectId)) return;
+    // 折叠中的项目不跑周期扫描，避免后台无意义刷会话列表
+    if (!activeProjectId || !expandedSidebarProjects.has(activeProjectId)) return;
     // 进入/退出运行态时都立即扫描一次，保证最终 child session 不因最后一次写入时序而遗漏。
     let disposed = false;
     const scheduleRefresh = () => {
@@ -2511,7 +2668,7 @@ export function App() {
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [activeProjectId, activeProjectHasBusyAgent, collapsedProjects]);
+  }, [activeProjectId, activeProjectHasBusyAgent, expandedSidebarProjects]);
 
   function getComposerMaxHeight() {
     const chatPane = chatPaneRef.current;
@@ -6033,7 +6190,7 @@ export function App() {
             );
             const hasProjectChildren =
               projectDisplay.children.length > 0 || projectSessionsLoading || !!project.worktreeEnabled;
-            const isCollapsed = collapsedProjects.has(project.id);
+            const isCollapsed = !expandedSidebarProjects.has(project.id);
             const isDraggingProject = draggingProjectId === project.id;
             const isProjectDropTarget = dragOverProjectId === project.id;
             const projectRowClass = [
@@ -6078,23 +6235,17 @@ export function App() {
                     el.classList.add('click-animating');
                     setTimeout(() => el.classList.remove('click-animating'), 400);
 
-                    // 点击项目行：切换展开/折叠状态
-                    const hasLoadedSessions = (sessionsByProject[project.id]?.length ?? 0) > 0;
-                    // 首次点击尚未加载会话 → 始终展开 + 加载；加载过之后点击 → 正常切换
-                    if (!hasLoadedSessions && !projectIsChat) {
-                      setCollapsedProjects((prev) => {
-                        const next = new Set(prev);
-                        next.delete(project.id);
-                        return next;
-                      });
+                    // 点击项目行：切换展开/折叠；首次展开未加载会话时顺带拉列表
+                    const hasLoadedSessions = project.id in sessionsByProject;
+                    if (!hasLoadedSessions && !projectIsChat && isCollapsed) {
+                      setProjectSidebarExpanded(project.id, true);
                       void refreshProjectSessions(project.id).catch(() => undefined);
                     } else {
-                      setCollapsedProjects((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(project.id)) next.delete(project.id);
-                        else next.add(project.id);
-                        return next;
-                      });
+                      const wasCollapsed = isCollapsed;
+                      setProjectSidebarExpanded(project.id);
+                      if (wasCollapsed && !(project.id in sessionsByProject)) {
+                        void refreshProjectSessions(project.id).catch(() => undefined);
+                      }
                     }
 
                     setActiveProjectId(project.id);
@@ -6109,14 +6260,9 @@ export function App() {
                         : t("app.projectCollapse")
                     }
                     onClick={(e) => {
-                      // 点击折叠图标仅切换折叠状态，不加载会话
+                      // 点击折叠图标仅切换折叠状态；会话由 expanded 变化 effect 补加载
                       e.stopPropagation();
-                      setCollapsedProjects((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(project.id)) next.delete(project.id);
-                        else next.add(project.id);
-                        return next;
-                      });
+                      setProjectSidebarExpanded(project.id);
                     }}
                   >
                     <Play size={12} />

@@ -16729,6 +16729,20 @@ a.config-btn {
   margin: 0;
 }
 
+/* 扩展卡片默认带过渡，卸载失败回弹时也不会瞬间跳变 */
+.extension-card {
+  transition:
+    opacity 0.28s ease,
+    transform 0.28s ease;
+}
+
+/* 卸载扩展时的退场动画：先淡出左移，再刷新列表，避免条目生硬消失 */
+.extension-card.extension-removing {
+  opacity: 0;
+  transform: translateX(-14px);
+  pointer-events: none;
+}
+
 .extensions-search-bar {
   border-bottom: 1px solid var(--color-border-subtle);
   padding-bottom: var(--space-4);
