@@ -1951,6 +1951,24 @@ body.is-resizing .wechat-shell {
   color: var(--color-text-primary);
 }
 
+/* 工作区折叠箭头：展开朝下，折叠朝右 */
+.worktree-fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  transition: transform 0.15s ease;
+}
+.worktree-fold.folded {
+  transform: rotate(-90deg);
+}
+.worktree-row:hover .worktree-fold {
+  color: var(--color-text-secondary);
+}
+
 /* 图标底托：工作区节点标识 */
 .worktree-row .worktree-branch-icon {
   display: inline-flex;

@@ -858,6 +858,13 @@ export function App() {
   const [expandedWorktreeSessions, setExpandedWorktreeSessions] = useState<
     Set<string>
   >(() => new Set());
+  /**
+   * 折叠的工作区 key 集合（main:${projectId} / wt:${path}）。
+   * 默认展开；再次点击当前工作区时切换折叠，切换到其他工作区时自动展开目标。
+   */
+  const [collapsedWorktrees, setCollapsedWorktrees] = useState<Set<string>>(
+    () => new Set(),
+  );
   /** 正在被删除的 worktree 路径集合：触发淡出动画期间保留 DOM，动画结束后才移除。 */
   const [removingWorktreePaths, setRemovingWorktreePaths] = useState<
     Set<string>
@@ -6410,25 +6417,57 @@ export function App() {
                     </span>
                   </span>
                 </button>
-                {!isCollapsed && project.worktreeEnabled && (
+                {!isCollapsed && project.worktreeEnabled && (() => {
+                  const mainWtKey = `main:${project.id}`;
+                  const mainSessionsExpanded = !collapsedWorktrees.has(mainWtKey);
+                  const mainCanFold =
+                    projectDisplay.children.length > 0 ||
+                    projectDisplay.hiddenChildCount > 0;
+                  return (
                   <div className="worktree-children worktree-main-header-only">
                     <button
                       type="button"
                       // 与子工作区共用 worktree-row 视觉模型，避免 conversation 网格导致标题/分支挤成一行杂讯。
                       className={`worktree-row worktree-main-row${
                         activeProjectId === project.id ? " active" : ""
-                      }`}
-                      // 点击主工作区 header 等同于选中父项目本身：激活主项目并加载其会话，
-                      // 避免与点击父项目行产生行为分歧导致用户迷惑。
+                      }${mainSessionsExpanded ? "" : " is-folded"}`}
+                      // 首次点击：选中主工作区并展开会话；再次点击当前主工作区：折叠/展开会话。
                       onClick={() => {
+                        const wasActive = activeProjectId === project.id;
                         setActiveProjectId(project.id);
                         setActiveAgentId(undefined);
                         if (!projectIsChat && !sessionsByProject[project.id]?.length) {
                           void refreshProjectSessions(project.id).catch(() => undefined);
                         }
+                        if (!mainCanFold) return;
+                        setCollapsedWorktrees((prev) => {
+                          const next = new Set(prev);
+                          if (wasActive) {
+                            if (next.has(mainWtKey)) next.delete(mainWtKey);
+                            else next.add(mainWtKey);
+                          } else {
+                            // 切到主工作区时默认展开，避免“选中了却看不到会话”
+                            next.delete(mainWtKey);
+                          }
+                          return next;
+                        });
                       }}
-                      title={t("app.worktreeMainWorkspace")}
+                      title={
+                        mainCanFold
+                          ? mainSessionsExpanded
+                            ? t("app.projectCollapse")
+                            : t("app.projectExpand")
+                          : t("app.worktreeMainWorkspace")
+                      }
                     >
+                      {mainCanFold && (
+                        <span
+                          className={`worktree-fold${mainSessionsExpanded ? "" : " folded"}`}
+                          aria-hidden="true"
+                        >
+                          <ChevronDown size={12} strokeWidth={1.8} />
+                        </span>
+                      )}
                       <span className="worktree-branch-icon" aria-hidden="true">
                         <GitBranch size={12} strokeWidth={1.8} />
                       </span>
@@ -6440,11 +6479,13 @@ export function App() {
                       </span>
                     </button>
                   </div>
-                )}
+                  );
+                })()}
                 {!isCollapsed &&
                   (projectDisplay.visibleChildren.length > 0 ||
-                    projectDisplay.hiddenChildCount > 0) && (
-                  // worktree 开启时主会话挂在主工作区下方，用 worktree-main-sessions 与 header 拼成同一组卡片
+                    projectDisplay.hiddenChildCount > 0) &&
+                  // worktree 模式下主会话可随主工作区折叠隐藏
+                  !(project.worktreeEnabled && collapsedWorktrees.has(`main:${project.id}`)) && (
                   <div
                     className={
                       project.worktreeEnabled
@@ -6723,15 +6764,19 @@ export function App() {
                       }) : null;
                       const wtChildren = wtDisplay?.visibleChildren ?? [];
                       const hiddenSessionCount = (wtDisplay?.hiddenChildCount ?? 0);
-                      // 取目录名作为副信息，帮助用户区分多个 worktree。
-                      const dirName = wt.path.split(/[/\\]/).filter(Boolean).pop() || wt.path;
-                      // PiDeck 创建的 worktree 分支使用 pideck/{slug} 命名；侧栏只展示 slug，
-                      // 避免同一行同时出现 pideck/test-a 和 test-a 造成信息重复。
+                      // PiDeck 创建的 worktree 分支使用 pideck/{slug} 命名；侧栏只展示 slug。
+                      // 完整路径放 title，不再行内显示目录名——分支与目录名不一致时会参差不齐。
                       const displayBranchName = wt.branch.replace(/^pideck\//, "");
+                      const wtKey = `wt:${wt.path}`;
                       const isChildActive =
                         !!childProject && activeProjectId === childProject.id;
+                      const canFoldWorkspace =
+                        childAgents.length > 0 || rawChildSessions.length > 0;
+                      const workspaceSessionsOpen = !collapsedWorktrees.has(wtKey);
+                      // 折叠时不渲染会话树；展开时仍沿用 3 条 +「查看更多」策略
                       const hasNestedChildren =
-                        wtChildren.length > 0 || hiddenSessionCount > 0;
+                        workspaceSessionsOpen &&
+                        (wtChildren.length > 0 || hiddenSessionCount > 0);
                       return (
                         // 每个子工作区自含子树：header + 会话/Agent，避免与兄弟 worktree 扁平混排
                         <div
@@ -6742,15 +6787,27 @@ export function App() {
                         >
                           <button
                             type="button"
-                            className={`worktree-row${isChildActive ? " active" : ""}`}
+                            className={`worktree-row${isChildActive ? " active" : ""}${workspaceSessionsOpen ? "" : " is-folded"}`}
                             onClick={() => {
-                              if (childProject) {
-                                setActiveProjectId(childProject.id);
-                                setActiveAgentId(undefined);
-                                if (!sessionsByProject[childProject.id]?.length) {
-                                  void refreshProjectSessions(childProject.id).catch(() => undefined);
-                                }
+                              if (!childProject) return;
+                              const wasActive = activeProjectId === childProject.id;
+                              setActiveProjectId(childProject.id);
+                              setActiveAgentId(undefined);
+                              if (!sessionsByProject[childProject.id]?.length) {
+                                void refreshProjectSessions(childProject.id).catch(() => undefined);
                               }
+                              // 首次点中：选中并展开；再次点击当前工作区：折叠/展开会话
+                              if (!canFoldWorkspace) return;
+                              setCollapsedWorktrees((prev) => {
+                                const next = new Set(prev);
+                                if (wasActive) {
+                                  if (next.has(wtKey)) next.delete(wtKey);
+                                  else next.add(wtKey);
+                                } else {
+                                  next.delete(wtKey);
+                                }
+                                return next;
+                              });
                             }}
                             onContextMenu={(e) => {
                               e.preventDefault();
@@ -6764,16 +6821,18 @@ export function App() {
                             }}
                             title={wt.path}
                           >
+                            {canFoldWorkspace && (
+                              <span
+                                className={`worktree-fold${workspaceSessionsOpen ? "" : " folded"}`}
+                                aria-hidden="true"
+                              >
+                                <ChevronDown size={12} strokeWidth={1.8} />
+                              </span>
+                            )}
                             <span className="worktree-branch-icon" aria-hidden="true">
                               <GitBranch size={12} strokeWidth={1.8} />
                             </span>
                             <span className="worktree-branch-name">{displayBranchName}</span>
-                            {/* 目录名与分支名不同时才显示，作为次要元信息，不与分支名抢视觉权重 */}
-                            {dirName !== displayBranchName && (
-                              <span className="worktree-dir-meta" title={wt.path}>
-                                {dirName}
-                              </span>
-                            )}
                             {childProject && (
                               // 子工作区直接新建 Agent，免去先选中再从别处创建的绕路操作。
                               <span
