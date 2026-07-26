@@ -31,8 +31,6 @@ git config user.email "你的邮箱"
 | 优化分支 | `refactor/xxx` | 代码重构/优化 |
 | 文档分支 | `docs/xxx` | 文档变更 |
 
-**⚠️ 禁止直接推送 `main` 分支！所有变更必须通过 PR 合并。**
-
 ---
 
 ## 三、开发流程
@@ -102,6 +100,8 @@ git commit -m "docs: 补充 API 文档说明"
 
 ## 五、提交 PR（Pull Request）
 
+> 重大或有争议的变更建议通过 PR 提交审核。简单变更或同步可以直接推送到 `main`。
+
 ### 1. 在 GitHub 上创建 PR
 
 推送完成后，访问仓库页面，点击 **"Compare & pull request"**。
@@ -156,10 +156,11 @@ git push origin feature/你的功能名
 
 | ✅ 可以 | ❌ 禁止 |
 |---------|---------|
-| 推送 `feature/*` 分支 | 直接推送 `main` 分支 |
-| 提交 PR 请求合并 | 强制推送（force push）到任何分支 |
-| 在 PR 中继续 push 更新 | 删除 `main` 分支 |
-| 合并其他协作者的分支到自己的分支 | 未经审核擅自合并到 main |
+| 推送 `feature/*` 分支 | 强制推送（force push）到任何分支 |
+| 提交 PR 请求合并 | 删除 `main` 分支 |
+| 在 PR 中继续 push 更新 | |
+| 直接推送 `main` 分支 | |
+| 合并其他协作者的分支到自己的分支 | |
 
 ---
 
