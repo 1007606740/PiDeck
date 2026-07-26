@@ -18,7 +18,7 @@ import {
  * 已处理的边界：
  * 1. IME 中文：composition 期间锁定，不回写 value、不触发 onChange。
  * 2. Chip 同步：diff 新旧 chip，局部拆分文本节点插入/移除 span，不重建整个 DOM。
- * 3. 粘贴：只取纯文本，防止富文本污染。
+ * 3. 粘贴：优先交给上层（图片/文件引用）；上层未处理时只取纯文本，防止富文本污染。
  * 4. 换行：Enter 未被上层 consume 时让浏览器原生处理，随后 input 事件同步 value。
  * 5. 光标在 chip 内部：contenteditable=false 阻止浏览器进入，无需额外处理。
  */
@@ -770,13 +770,16 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			onCursorChange(getCaretOffset(root));
 		}, [onCursorChange]);
 
-		/** 粘贴：图片交给上层处理，其余强制纯文本。 */
+		/**
+		 * 粘贴：优先交给上层（图片附加 / 系统剪贴板文件 → @path 引用）。
+		 * 上层若已处理会调用 preventDefault；否则强制插入纯文本，避免富文本污染。
+		 * 注意：资源管理器复制文件时 ClipboardEvent 往往没有 kind=file，
+		 * 因此不能仅靠 items 判断，必须始终先给 onPaste 机会。
+		 */
 		const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
 			if (onPaste) {
-				const hasImage = Array.from(event.clipboardData.items).some(
-					(i) => i.type.startsWith("image/"),
-				);
-				if (hasImage) { onPaste(event); return; }
+				onPaste(event);
+				if (event.defaultPrevented) return;
 			}
 			event.preventDefault();
 			const root = rootRef.current;

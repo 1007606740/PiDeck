@@ -5538,35 +5538,124 @@ export function App() {
     });
   }
 
-  /** 处理粘贴事件:从剪贴板提取图片 */
-  async function handlePaste(event: React.ClipboardEvent) {
+  /**
+   * 将本地路径以 @path 引用插入到输入框当前光标处。
+   * 与「引用文件」按钮、粘贴/拖拽文件共用同一套规则：只引用路径，不上传内容。
+   */
+  function insertFilePathRefs(paths: string[]) {
+    if (paths.length === 0) return;
+    const el = composerTextareaRef.current;
+    const cursor = el ? getCaretOffsetOf(el) : composerCursor;
+    const liveComposerPrompt = activeAgentIdRef.current
+      ? (livePromptByAgentRef.current[activeAgentIdRef.current] ?? prompt)
+      : prompt;
+    const refText = paths.map((p) => `@${p}`).join(" ");
+    const spacer =
+      cursor > 0 &&
+      liveComposerPrompt[cursor - 1] !== " " &&
+      liveComposerPrompt[cursor - 1] !== "\n"
+        ? " "
+        : "";
+    const newText =
+      liveComposerPrompt.slice(0, cursor) +
+      spacer +
+      refText +
+      liveComposerPrompt.slice(cursor);
+    const newCursor = cursor + spacer.length + refText.length;
+    setPrompt(newText);
+    setComposerCursor(newCursor);
+    pendingComposerCaretRef.current = newCursor;
+    requestAnimationFrame(() => {
+      composerTextareaRef.current?.focus();
+    });
+  }
+
+  /** 从 File 列表解析本地路径（Electron 38 必须走 webUtils，不能用已移除的 File.path） */
+  function resolveLocalPathsFromFiles(fileList: File[]): string[] {
+    const getPath = window.piDesktop.files.getPathForFile;
+    if (!getPath) return [];
+    const paths: string[] = [];
+    for (const file of fileList) {
+      try {
+        const p = getPath(file);
+        if (p) paths.push(p);
+      } catch {
+        // 非本地文件或路径不可用时跳过
+      }
+    }
+    return paths;
+  }
+
+  /**
+   * 处理粘贴：系统文件路径以 @path 引用插入，位图/截图附加为图片。
+   * 未处理时不 preventDefault，交给 RichInput 做纯文本粘贴。
+   * preventDefault 必须在任何 await 之前同步调用，否则浏览器会先插入默认内容。
+   *
+   * 顺序说明：资源管理器复制图片文件时，剪贴板常同时带路径 + 缩略图；
+   * 必须先判定文件路径，否则会被误当成截图附加。纯截图无路径，仍走图片分支。
+   */
+  function handlePaste(event: React.ClipboardEvent) {
     const items = Array.from(event.clipboardData.items);
-    for (const item of items) {
-      if (item.type.startsWith("image/")) {
+
+    // 1) 资源管理器复制/剪切的文件：浏览器 ClipboardEvent 通常没有 kind=file，
+    //    需通过 preload 同步读取 Electron clipboard（FileNameW / CF_HDROP 等）
+    const clipboardPaths = window.piDesktop.files.getClipboardPaths?.() ?? [];
+    if (clipboardPaths.length > 0) {
+      event.preventDefault();
+      insertFilePathRefs(clipboardPaths);
+      return;
+    }
+
+    // 2) 兜底：剪贴板里若有 File 对象（部分场景），用 webUtils 解析路径
+    const fileItems = items.filter((i) => i.kind === "file");
+    if (fileItems.length > 0) {
+      const files = fileItems
+        .map((i) => i.getAsFile())
+        .filter((f): f is File => Boolean(f));
+      const paths = resolveLocalPathsFromFiles(files);
+      if (paths.length > 0) {
         event.preventDefault();
-        const file = item.getAsFile();
-        if (file) {
-          const image = await processImageFile(file);
-          if (image) {
-            setAttachedImages((prev) => [...prev, image]);
-          }
-        }
+        insertFilePathRefs(paths);
         return;
       }
     }
+
+    // 3) 图片粘贴（截图等位图数据，无本地文件路径）：读取并附加到消息
+    const imageItems = items.filter((i) => i.type.startsWith("image/"));
+    if (imageItems.length > 0) {
+      event.preventDefault();
+      void (async () => {
+        for (const item of imageItems) {
+          const file = item.getAsFile();
+          if (!file) continue;
+          const image = await processImageFile(file);
+          if (image) setAttachedImages((prev) => [...prev, image]);
+        }
+      })();
+    }
   }
 
-  /** 处理拖拽事件:支持拖入图片 */
+  /**
+   * 处理拖拽：本地文件/目录一律以 @path 引用插入（含图片文件，不上传内容）。
+   * 仅当无法解析本地路径且类型为 image/* 时，才退回附加图片（极少见）。
+   */
   async function handleDrop(event: React.DragEvent) {
     event.preventDefault();
     const files = Array.from(event.dataTransfer.files);
+    if (files.length === 0) return;
+
+    // 优先：有本地路径 → 与「引用文件」一致，插入 @path
+    const paths = resolveLocalPathsFromFiles(files);
+    if (paths.length > 0) {
+      insertFilePathRefs(paths);
+      return;
+    }
+
+    // 兜底：无路径的图片数据（非资源管理器文件拖入）
     for (const file of files) {
-      if (file.type.startsWith("image/")) {
-        const image = await processImageFile(file);
-        if (image) {
-          setAttachedImages((prev) => [...prev, image]);
-        }
-      }
+      if (!file.type.startsWith("image/")) continue;
+      const image = await processImageFile(file);
+      if (image) setAttachedImages((prev) => [...prev, image]);
     }
   }
 
@@ -5593,27 +5682,7 @@ export function App() {
       const paths = await window.piDesktop.dialog.pickFiles({
         title: t("app.attachFile"),
       });
-      if (paths.length === 0) return;
-      const el = composerTextareaRef.current;
-      const cursor = el ? getCaretOffsetOf(el) : composerCursor;
-      const liveComposerPrompt = activeAgentIdRef.current
-        ? (livePromptByAgentRef.current[activeAgentIdRef.current] ?? prompt)
-        : prompt;
-      // 将选中的路径拼接为引用文本，每个路径一行
-      const refText = paths.map((p) => `@${p}`).join(" ");
-      const spacer = cursor > 0 && liveComposerPrompt[cursor - 1] !== " " && liveComposerPrompt[cursor - 1] !== "\n" ? " " : "";
-      const newText =
-        liveComposerPrompt.slice(0, cursor) +
-        spacer +
-        refText +
-        liveComposerPrompt.slice(cursor);
-      const newCursor = cursor + spacer.length + refText.length;
-      setPrompt(newText);
-      setComposerCursor(newCursor);
-      pendingComposerCaretRef.current = newCursor;
-      requestAnimationFrame(() => {
-        composerTextareaRef.current?.focus();
-      });
+      insertFilePathRefs(paths);
     } catch {
       // 用户取消或出错时不作处理
     }

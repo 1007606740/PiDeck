@@ -289,6 +289,8 @@ export function createPreviewApi(): PiDesktopApi {
 			delete: async () => undefined,
 			rename: async () => "",
 			create: async () => "",
+			getPathForFile: () => "",
+			getClipboardPaths: () => [],
 		},
 		sessions: {
 			list: async () => getSessions(),
