@@ -6413,7 +6413,11 @@ export function App() {
                 {!isCollapsed && project.worktreeEnabled && (
                   <div className="worktree-children worktree-main-header-only">
                     <button
-                      className="conversation worktree-workspace-header"
+                      type="button"
+                      // 与子工作区共用 worktree-row 视觉模型，避免 conversation 网格导致标题/分支挤成一行杂讯。
+                      className={`worktree-row worktree-main-row${
+                        activeProjectId === project.id ? " active" : ""
+                      }`}
                       // 点击主工作区 header 等同于选中父项目本身：激活主项目并加载其会话，
                       // 避免与点击父项目行产生行为分歧导致用户迷惑。
                       onClick={() => {
@@ -6425,24 +6429,29 @@ export function App() {
                       }}
                       title={t("app.worktreeMainWorkspace")}
                     >
-                      <span className="worktree-main-branch-icon">
-                        <GitBranch size={12} />
+                      <span className="worktree-branch-icon" aria-hidden="true">
+                        <GitBranch size={12} strokeWidth={1.8} />
                       </span>
-                      <div className="conversation-body">
-                        <div className="conversation-title">
-                          <strong>{t("app.worktreeMainWorkspace")}</strong>
-                          <span className="worktree-main-branch">
-                            {branchByProject[project.id] ?? t("app.worktreeBranchLoading")}
-                          </span>
-                        </div>
-                      </div>
+                      <span className="worktree-branch-name">
+                        {t("app.worktreeMainWorkspace")}
+                      </span>
+                      <span className="worktree-branch-chip">
+                        {branchByProject[project.id] ?? t("app.worktreeBranchLoading")}
+                      </span>
                     </button>
                   </div>
                 )}
                 {!isCollapsed &&
                   (projectDisplay.visibleChildren.length > 0 ||
                     projectDisplay.hiddenChildCount > 0) && (
-                  <div className="session-card">
+                  // worktree 开启时主会话挂在主工作区下方，用 worktree-main-sessions 与 header 拼成同一组卡片
+                  <div
+                    className={
+                      project.worktreeEnabled
+                        ? "session-card worktree-main-sessions"
+                        : "session-card"
+                    }
+                  >
                     {projectDisplay.visibleChildren.map((child) => {
                     const subagentGroupKey = `${project.id}:${child.key}`;
                     const subagentsExpanded = expandedSubagentGroups.has(subagentGroupKey);
@@ -6671,8 +6680,11 @@ export function App() {
                 {!isCollapsed && project.worktreeEnabled && (
                   <div className="worktree-children worktree-sandbox-list">
                     <div className="worktree-sandbox-toolbar">
-                      <span>{t("app.worktreeOtherWorkspaces")}</span>
+                      <span className="worktree-section-label">
+                        {t("app.worktreeOtherWorkspaces")}
+                      </span>
                       <button
+                        type="button"
                         className="worktree-create-btn"
                         title={t("app.worktreeNew")}
                         aria-label={t("app.worktreeNew")}
@@ -6680,7 +6692,7 @@ export function App() {
                           setWorktreeCreateDialog({ projectId: project.id });
                         }}
                       >
-                        <GitBranch size={12} />
+                        <Plus size={12} strokeWidth={1.8} aria-hidden="true" />
                         <span>{t("app.worktreeNewShort")}</span>
                       </button>
                     </div>
@@ -6716,10 +6728,21 @@ export function App() {
                       // PiDeck 创建的 worktree 分支使用 pideck/{slug} 命名；侧栏只展示 slug，
                       // 避免同一行同时出现 pideck/test-a 和 test-a 造成信息重复。
                       const displayBranchName = wt.branch.replace(/^pideck\//, "");
+                      const isChildActive =
+                        !!childProject && activeProjectId === childProject.id;
+                      const hasNestedChildren =
+                        wtChildren.length > 0 || hiddenSessionCount > 0;
                       return (
-                        <Fragment key={wt.path}>
+                        // 每个子工作区自含子树：header + 会话/Agent，避免与兄弟 worktree 扁平混排
+                        <div
+                          key={wt.path}
+                          className={`worktree-group${
+                            isChildActive ? " is-active-group" : ""
+                          }${removingWorktreePaths.has(wt.path) ? " worktree-removing" : ""}`}
+                        >
                           <button
-                            className={`conversation worktree-row${removingWorktreePaths.has(wt.path) ? " worktree-removing" : ""}`}
+                            type="button"
+                            className={`worktree-row${isChildActive ? " active" : ""}`}
                             onClick={() => {
                               if (childProject) {
                                 setActiveProjectId(childProject.id);
@@ -6741,12 +6764,15 @@ export function App() {
                             }}
                             title={wt.path}
                           >
-                            <span className="worktree-branch-icon">
-                              <GitBranch size={12} />
+                            <span className="worktree-branch-icon" aria-hidden="true">
+                              <GitBranch size={12} strokeWidth={1.8} />
                             </span>
                             <span className="worktree-branch-name">{displayBranchName}</span>
+                            {/* 目录名与分支名不同时才显示，作为次要元信息，不与分支名抢视觉权重 */}
                             {dirName !== displayBranchName && (
-                              <span className="worktree-dir-meta" title={wt.path}>{dirName}</span>
+                              <span className="worktree-dir-meta" title={wt.path}>
+                                {dirName}
+                              </span>
                             )}
                             {childProject && (
                               // 子工作区直接新建 Agent，免去先选中再从别处创建的绕路操作。
@@ -6758,7 +6784,7 @@ export function App() {
                                 }}
                                 title={t("app.projectNewAgent")}
                               >
-                                <Plus size={12} />
+                                <Plus size={12} strokeWidth={1.8} />
                               </span>
                             )}
                             {childProject && (
@@ -6770,10 +6796,12 @@ export function App() {
                                 }}
                                 title={t("menu.removeProject")}
                               >
-                                <Trash2 size={12} />
+                                <Trash2 size={12} strokeWidth={1.8} />
                               </span>
                             )}
                           </button>
+                          {hasNestedChildren && (
+                          <div className="worktree-group-body">
                           {wtChildren.filter(c => c.type === "agent").map((item) => {
                             const agent = item.agent;
                             const totalSubagentCount = (item.codexSubagents?.length ?? 0) + (item.piSubagents?.length ?? 0);
@@ -6887,6 +6915,7 @@ export function App() {
                           })}
                           {hiddenSessionCount > 0 && (
                             <button
+                              type="button"
                               className="worktree-sessions-more"
                               onClick={() => {
                                 setExpandedWorktreeSessions((prev) => {
@@ -6899,7 +6928,9 @@ export function App() {
                               {t("app.worktreeShowMoreSessions", { count: hiddenSessionCount })}
                             </button>
                           )}
-                        </Fragment>
+                          </div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>

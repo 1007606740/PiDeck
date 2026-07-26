@@ -1754,89 +1754,146 @@ body.is-resizing .wechat-shell {
   font-size: var(--font-size-micro);
 }
 
-/* ── Worktree 工作区 ── */
-.worktree-children {
-  /* 工作区是项目下的二级容器：用轻量左线 + 微弱底色表达归属，不再只靠缩进。 */
-  margin: 2px 4px 4px 26px;
-  border-left: 1px solid
-    color-mix(in srgb, var(--color-accent) 18%, var(--color-border-subtle));
-  padding: 2px 0 2px 6px;
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
-  background: color-mix(in srgb, var(--color-bg-muted) 56%, transparent);
-}
-:root[data-theme="dark"] .worktree-children {
-  /* 暗色下 worktree 容器需要更低对比，只保留左线作为归属提示。 */
-  border-left-color: color-mix(
+/* ── Worktree 工作区 ──
+ * 层级目标（从外到内）：
+ *   项目
+ *   ├─ 主工作区卡片（header + 其会话）
+ *   └─ 其他工作区卡片
+ *        ├─ worktree A（header + 子会话）
+ *        └─ worktree B（header + 子会话）
+ * 用「分组卡片 + 左树线 + 缩进」表达归属，避免会话与工作区扁平混排。
+ */
+.project-group.worktree-enabled {
+  --worktree-rail: color-mix(
     in srgb,
-    var(--color-accent) 16%,
+    var(--color-border) 58%,
     var(--color-border-subtle)
   );
-  background: color-mix(in srgb, var(--color-bg-muted) 38%, transparent);
+  --worktree-group-bg: color-mix(in srgb, var(--color-bg-muted) 52%, transparent);
+  --worktree-body-bg: color-mix(in srgb, var(--color-bg-panel) 42%, transparent);
 }
+:root[data-theme="dark"] .project-group.worktree-enabled {
+  --worktree-rail: color-mix(
+    in srgb,
+    var(--color-border) 48%,
+    var(--color-border-subtle)
+  );
+  --worktree-group-bg: color-mix(in srgb, var(--color-bg-muted) 38%, transparent);
+  --worktree-body-bg: color-mix(in srgb, var(--color-bg-muted) 22%, transparent);
+}
+
+.worktree-children {
+  margin: 4px 4px 0 14px;
+  padding: 2px 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+/* 其他工作区：同样透明，只靠分区标题与树线分层 */
+.worktree-sandbox-list.worktree-children {
+  margin-top: 6px;
+  margin-bottom: 6px;
+  padding: 4px 0 2px;
+  background: transparent;
+  border: none;
+}
+
+/* 主工作区 header：透明，不再做灰底卡片 */
 .worktree-main-header-only {
   margin-top: 2px;
-  margin-bottom: 2px;
+  margin-bottom: 0;
+  padding: 2px 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
-/* worktree 主工作区直接复用 .conversation 行模型，只覆盖缩进层级所需的列宽。 */
-.worktree-workspace-header {
-  grid-template-columns: 16px minmax(0, 1fr);
-  min-height: var(--control-height-sm);
-  padding: 4px 6px;
+.project-group.worktree-enabled
+  > .worktree-main-header-only:not(:has(+ .worktree-main-sessions)) {
+  margin-bottom: 6px;
+  border: none;
+  border-radius: 0;
+}
+
+/* 主工作区会话：透明底 + 左树线，从属于 header */
+.project-group.worktree-enabled > .worktree-main-sessions.session-card {
+  margin: 0 4px 6px 14px;
+  padding: 2px 0 4px 8px;
+  border: none;
+  border-left: 1px solid var(--worktree-rail);
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+.project-group.worktree-enabled > .worktree-main-sessions.session-card:hover {
+  background: transparent;
+}
+
+/* 主工作区会话树线：相对工作区 header 再缩进一级 */
+.project-group.worktree-enabled > .worktree-main-sessions .agent-row,
+.project-group.worktree-enabled > .worktree-main-sessions .session-row,
+.project-group.worktree-enabled > .worktree-main-sessions .session-more-row,
+.project-group.worktree-enabled > .worktree-main-sessions .codex-subagent-sidebar-group {
+  margin-left: 12px;
+  width: calc(100% - 12px);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  box-shadow: inset 2px 0 0 var(--worktree-rail);
+}
+.project-group.worktree-enabled > .worktree-main-sessions .agent-row,
+.project-group.worktree-enabled > .worktree-main-sessions .session-row {
+  min-height: 26px;
+  padding-left: 12px;
+  padding-right: 6px;
+  color: var(--color-text-tertiary);
+}
+.project-group.worktree-enabled > .worktree-main-sessions .agent-row .conversation-title strong,
+.project-group.worktree-enabled > .worktree-main-sessions .session-row .conversation-title strong {
+  font-size: var(--font-size-caption);
+  font-weight: 500;
   color: var(--color-text-secondary);
 }
-.worktree-workspace-header.active {
+.project-group.worktree-enabled > .worktree-main-sessions .agent-row.active .conversation-title strong,
+.project-group.worktree-enabled > .worktree-main-sessions .session-row.active .conversation-title strong {
+  font-weight: 600;
   color: var(--color-text-primary);
 }
-.worktree-main-branch-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-tertiary);
+
+/* 其他工作区：独立卡片，与主工作区明显分段 */
+.worktree-sandbox-list {
+  margin: 0 8px 8px 16px;
+  padding: 6px;
+  border-radius: var(--radius-md);
 }
-.worktree-workspace-header.active .worktree-main-branch-icon {
-  color: var(--color-accent);
-}
-.worktree-main-branch {
-  color: var(--color-text-tertiary);
-  font-family: var(--font-family-business);
-  font-size: var(--font-size-caption);
-}
+
 .project-group.worktree-enabled > .conversation.agent-row,
 .project-group.worktree-enabled > .conversation.session-row,
 .project-group.worktree-enabled > .codex-subagent-sidebar-group,
 .project-group.worktree-enabled > .session-more-row,
 .project-group.worktree-enabled > .project-session-loading {
-  margin-left: 30px;
-  /* 开启/关闭工作区时 margin 会变化，加过渡避免行位置突变跳动 */
+  margin-left: 28px;
   transition: margin-left 0.18s ease;
 }
-.worktree-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 26px;
-  padding: 3px 6px;
-  font-size: var(--font-size-control);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition:
-    background 0.15s,
-    color 0.15s;
-  width: 100%;
-  box-sizing: border-box;
-  border: none;
+
+/* ── 单个 worktree 子树 ── */
+.worktree-group {
+  margin-top: 2px;
+  padding: 2px 0;
+  border-radius: 0;
   background: transparent;
-  color: var(--color-text-secondary);
+  transition: none;
 }
-.worktree-row:hover {
-  background: var(--color-bg-hover);
+.worktree-group + .worktree-group {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--color-border-subtle) 88%, transparent);
 }
-.worktree-row.active {
-  color: var(--color-text-primary);
-  background: color-mix(in srgb, var(--color-accent-soft) 54%, transparent);
+.worktree-group.is-active-group {
+  /* 选中不再铺整组底色，只靠 header 行本身表达当前项 */
+  background: transparent;
+  box-shadow: none;
 }
-/* 删除 worktree 时的淡出动画 */
-.worktree-row.worktree-removing {
+.worktree-group.worktree-removing {
   opacity: 0;
   transform: translateX(-12px);
   transition:
@@ -1844,25 +1901,113 @@ body.is-resizing .wechat-shell {
     transform 0.25s ease;
   pointer-events: none;
 }
+
+/* 子会话挂在 worktree header 下：左树线表达“属于该工作区” */
+.worktree-group-body {
+  position: relative;
+  margin: 1px 2px 2px 12px;
+  padding: 2px 0 2px 8px;
+  border-left: 1px solid var(--worktree-rail);
+}
+
+/* 工作区行：独立 flex 模型，层级上重于会话行 */
+.worktree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 28px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 4px 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-control);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+.worktree-row:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.worktree-row:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.worktree-row.active {
+  color: var(--color-text-primary);
+  background: transparent;
+  box-shadow: none;
+  font-weight: 600;
+}
+.worktree-main-row .worktree-branch-name {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+/* 图标底托：工作区节点标识 */
 .worktree-row .worktree-branch-icon {
   display: inline-flex;
   align-items: center;
-  color: var(--color-text-tertiary);
+  justify-content: center;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-tertiary);
+  background: color-mix(in srgb, var(--color-bg-panel) 70%, var(--color-bg-muted));
+}
+.worktree-row:hover .worktree-branch-icon {
+  color: var(--color-text-secondary);
 }
 .worktree-row.active .worktree-branch-icon {
-  color: var(--color-accent);
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-bg-muted) 80%, var(--color-bg-panel));
 }
+
 .worktree-row .worktree-branch-name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-family-business);
-  font-size: var(--font-size-caption);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-control);
   font-weight: 500;
+  line-height: var(--line-height-tight, 1.25);
+  color: inherit;
 }
+
+.worktree-row .worktree-branch-chip {
+  flex-shrink: 0;
+  max-width: 46%;
+  height: 18px;
+  padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 999px;
+  border: 1px solid
+    color-mix(in srgb, var(--color-border-subtle) 88%, var(--color-border));
+  background: color-mix(in srgb, var(--color-bg-panel) 78%, transparent);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-business);
+  font-size: var(--font-size-micro);
+  font-weight: 500;
+  line-height: 16px;
+}
+.worktree-row.active .worktree-branch-chip {
+  color: var(--color-text-secondary);
+  border-color: color-mix(in srgb, var(--color-border) 70%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-bg-muted) 55%, var(--color-bg-panel));
+}
+
 .worktree-row .worktree-remove {
   opacity: 0;
   transition: opacity 0.15s;
@@ -1871,11 +2016,9 @@ body.is-resizing .wechat-shell {
 .worktree-row:hover .worktree-remove {
   opacity: 1;
 }
-/* 当前激活的 worktree 行上删除按钮始终可见，避免用户不移鼠标就找不到入口 */
 .worktree-row.active .worktree-remove {
   opacity: 1;
 }
-/* 子工作区新建 Agent 按钮，与删除按钮一致的显隐策略 */
 .worktree-row .worktree-new-agent {
   opacity: 0;
   transition: opacity 0.15s;
@@ -1885,23 +2028,64 @@ body.is-resizing .wechat-shell {
 .worktree-row.active .worktree-new-agent {
   opacity: 1;
 }
-/* worktree 行的目录名副信息，低对比避免与分支名争夺注意力 */
+
 .worktree-row .worktree-dir-meta {
-  flex-shrink: 0;
-  max-width: 82px;
+  flex-shrink: 1;
+  max-width: 72px;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--font-size-micro);
   color: var(--color-text-tertiary);
   font-family: var(--font-family-business);
+  opacity: 0.88;
 }
+
+/* 嵌套会话：比工作区 header 更轻、更缩进，并带横向短枝 */
+.worktree-group-body .worktree-nested-row.agent-row,
+.worktree-group-body .worktree-nested-row.session-row {
+  position: relative;
+  margin: 1px 0 0;
+  width: 100%;
+  min-height: 26px;
+  padding: 3px 6px 3px 14px;
+  color: var(--color-text-tertiary);
+  border-radius: var(--radius-sm);
+}
+.worktree-group-body .worktree-nested-row.agent-row::before,
+.worktree-group-body .worktree-nested-row.session-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 8px;
+  height: 1px;
+  background: var(--worktree-rail);
+  display: block;
+}
+.worktree-group-body .worktree-nested-row .conversation-title strong {
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+.worktree-group-body .worktree-nested-row.active .conversation-title strong {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+.worktree-group-body .codex-subagent-sidebar-group {
+  margin-left: 10px;
+  border-left: 1px dashed
+    color-mix(in srgb, var(--worktree-rail) 80%, transparent);
+  padding-left: 4px;
+}
+
 .worktree-sessions-more {
   display: block;
-  width: calc(100% - 8px);
+  width: 100%;
   box-sizing: border-box;
-  margin: 2px 0 2px 8px;
-  padding: 3px 8px;
+  margin: 2px 0 0;
+  padding: 3px 8px 3px 14px;
   border: none;
   background: transparent;
   color: var(--color-text-tertiary);
@@ -1917,53 +2101,58 @@ body.is-resizing .wechat-shell {
   color: var(--color-accent);
   background: var(--color-bg-hover);
 }
-.worktree-nested-row {
-  margin-left: 8px;
-  width: calc(100% - 8px);
-}
-.worktree-children .worktree-nested-row {
-  /* 子工作区里的会话/Agent 已经处在二级容器内，缩进收窄避免出现“楼梯越走越深”。 */
-  padding-left: 20px;
-}
+
+/* 分区标题：其他工作区 */
 .worktree-sandbox-toolbar {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
-  min-height: 22px;
-  margin: 5px 0 2px;
-  padding: 0 4px 0 6px;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+  margin: 0 0 4px;
+  padding: 1px 4px 6px;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--color-border-subtle) 90%, transparent);
   color: var(--color-text-tertiary);
-  font-size: var(--font-size-caption);
 }
-.worktree-sandbox-toolbar > span {
+.worktree-section-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--font-size-micro);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-text-tertiary);
 }
 .worktree-create-btn {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  height: var(--control-height-xs);
-  padding: 0 5px;
-  border: 0;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid
+    color-mix(in srgb, var(--color-border-subtle) 88%, var(--color-border));
   border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-caption);
+  background: color-mix(in srgb, var(--color-bg-panel) 72%, transparent);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-micro);
+  font-weight: 500;
   cursor: pointer;
-  opacity: 0.72;
+  flex-shrink: 0;
   transition:
     background 0.12s ease,
     color 0.12s ease,
-    opacity 0.12s ease;
+    border-color 0.12s ease;
 }
 .worktree-create-btn:hover {
-  background: var(--color-bg-hover);
+  border-color: color-mix(in srgb, var(--color-accent) 32%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent-soft) 48%, var(--color-bg-panel));
   color: var(--color-accent);
-  opacity: 1;
+}
+.worktree-create-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 /* ── Worktree 创建对话框 ── */
@@ -18974,7 +19163,8 @@ html[data-theme="dark"] .scratch-pad-md mark {
 .chat-list-pane.v3-braun .sidebar-body .agent-row,
 .chat-list-pane.v3-braun .sidebar-body .session-row {
   width: 100%;
-  height: var(--control-height-md);
+  height: auto;
+  min-height: var(--control-height-md);
   margin: 2px 0;
   padding: var(--space-1) var(--space-2);
   border-left: 2px solid transparent;
@@ -18982,13 +19172,22 @@ html[data-theme="dark"] .scratch-pad-md mark {
   background: var(--color-bg-panel);
 }
 
+/* 工作区 header：透明底，靠字重/图标区分层级，不再铺灰底 */
 .chat-list-pane.v3-braun .sidebar-body .worktree-row {
-  margin: 2px 0 2px var(--space-6);
+  margin: 0;
   padding: 6px 8px;
-  width: auto;
+  width: 100%;
   border-left: 2px solid transparent;
   border-radius: var(--radius-sm);
-  background: var(--color-bg-panel);
+  background: transparent;
+}
+.chat-list-pane.v3-braun .sidebar-body .worktree-main-row {
+  font-weight: 600;
+  background: transparent;
+}
+.chat-list-pane.v3-braun .sidebar-body .worktree-main-row .worktree-branch-name {
+  font-weight: 600;
+  color: var(--color-text-primary);
 }
 
 .chat-list-pane.v3-braun .sidebar-body .agent-row:last-child,
@@ -19004,16 +19203,25 @@ html[data-theme="dark"] .scratch-pad-md mark {
 }
 
 .chat-list-pane.v3-braun .sidebar-body .agent-row.active,
-.chat-list-pane.v3-braun .sidebar-body .session-row.active,
-.chat-list-pane.v3-braun .sidebar-body .worktree-row.active {
-  background: var(--color-accent-soft);
+.chat-list-pane.v3-braun .sidebar-body .session-row.active {
+  background: var(--color-bg-hover);
   box-shadow: none;
+  border-left-color: color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+/* 工作区选中：中性底，不用 accent 绿色块 */
+.chat-list-pane.v3-braun .sidebar-body .worktree-row.active {
+  background: transparent;
+  box-shadow: none;
+  border-left-color: transparent;
 }
 
 .chat-list-pane.v3-braun .sidebar-body .agent-row.active:hover,
-.chat-list-pane.v3-braun .sidebar-body .session-row.active:hover,
+.chat-list-pane.v3-braun .sidebar-body .session-row.active:hover {
+  background: var(--color-bg-hover);
+}
 .chat-list-pane.v3-braun .sidebar-body .worktree-row.active:hover {
-  background: var(--color-accent-soft);
+  background: var(--color-bg-hover);
 }
 
 .chat-list-pane.v3-braun .sidebar-body .agent-row.active::before,
@@ -19092,13 +19300,13 @@ html[data-theme="dark"] .scratch-pad-md mark {
 }
 
 .chat-list-pane.v3-braun .sidebar-body .worktree-sessions-more {
-  margin: 2px 0;
-  padding: 6px 8px;
-  justify-content: center;
-  text-align: center;
+  margin: 2px 0 0;
+  padding: 4px 8px 4px 16px;
+  justify-content: flex-start;
+  text-align: left;
   color: var(--color-text-tertiary);
   font-size: var(--font-size-caption);
-  background: var(--color-bg-panel);
+  background: transparent;
 }
 
 .chat-list-pane.v3-braun .sidebar-body .session-more-row:hover,
@@ -19106,22 +19314,25 @@ html[data-theme="dark"] .scratch-pad-md mark {
 .chat-list-pane.v3-braun .sidebar-body .worktree-sessions-more:hover {
   color: var(--color-text-primary);
   background: var(--color-bg-hover);
-  text-decoration: underline;
+  text-decoration: none;
 }
 
 .chat-list-pane.v3-braun .sidebar-body .codex-subagent-sidebar-group {
-  margin: 2px 0 2px 28px;
+  margin: 2px 0 2px 12px;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  border-left: 1px dashed
+    color-mix(in srgb, var(--color-border) 55%, transparent);
+  padding-left: 6px;
 }
 
 .chat-list-pane.v3-braun .sidebar-body .codex-subagent-sidebar-toggle,
 .chat-list-pane.v3-braun .sidebar-body .codex-subagent-sidebar-row {
   margin: 0;
-  padding: 6px 8px 6px 20px;
+  padding: 5px 8px 5px 12px;
   border-radius: var(--radius-sm);
-  background: var(--color-bg-panel);
+  background: transparent;
 }
 
 .chat-list-pane.v3-braun .sidebar-body .codex-subagent-sidebar-toggle:hover,
@@ -19129,26 +19340,197 @@ html[data-theme="dark"] .scratch-pad-md mark {
   background: var(--color-bg-hover);
 }
 
+/*
+ * v3-braun worktree 层级（覆盖旧的“扁平化”规则）：
+ * 项目
+ *  ├─ 主工作区卡片（header + 会话）
+ *  └─ 其他工作区卡片
+ *       └─ 每个 worktree 组（header + 子会话树线）
+ */
 .chat-list-pane.v3-braun .sidebar-body .worktree-children {
-  margin: var(--space-1) 0 0 var(--space-6);
-  border-left: 0;
-  padding: 0;
+  margin: 4px 2px 0 12px;
+  padding: 2px 0;
+  border: none;
+  border-radius: 0;
   background: transparent;
 }
 
-.chat-list-pane.v3-braun .sidebar-body .worktree-children .worktree-row,
-.chat-list-pane.v3-braun .sidebar-body .worktree-children .agent-row,
-.chat-list-pane.v3-braun .sidebar-body .worktree-children .session-row,
+/* 主工作区 header / 会话：透明，仅树线表达归属 */
+.chat-list-pane.v3-braun .sidebar-body .worktree-main-header-only {
+  margin-bottom: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
 .chat-list-pane.v3-braun
   .sidebar-body
-  .worktree-children
-  .codex-subagent-sidebar-row {
-  margin-left: 0;
+  .worktree-main-header-only:not(:has(+ .worktree-main-sessions)) {
+  margin-bottom: 6px;
+  border: none;
+  border-radius: 0;
 }
 
+.chat-list-pane.v3-braun .sidebar-body .worktree-main-sessions.session-card {
+  margin: 0 2px 6px 12px;
+  padding: 2px 0 4px 8px;
+  border: none;
+  border-left: 2px solid
+    color-mix(in srgb, var(--color-border) 50%, transparent);
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+.chat-list-pane.v3-braun
+  .sidebar-body
+  .worktree-main-sessions.session-card:hover {
+  background: transparent;
+}
+.chat-list-pane.v3-braun .sidebar-body .worktree-main-sessions .agent-row,
+.chat-list-pane.v3-braun .sidebar-body .worktree-main-sessions .session-row,
+.chat-list-pane.v3-braun .sidebar-body .worktree-main-sessions .session-more-row {
+  margin: 2px 0 2px 6px;
+  width: calc(100% - 6px);
+  padding: 5px 8px 5px 12px;
+  border-left: 2px solid
+    color-mix(in srgb, var(--color-border) 50%, transparent);
+  background: transparent;
+  color: var(--color-text-tertiary);
+}
+.chat-list-pane.v3-braun
+  .sidebar-body
+  .worktree-main-sessions
+  .agent-row:hover,
+.chat-list-pane.v3-braun
+  .sidebar-body
+  .worktree-main-sessions
+  .session-row:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+.chat-list-pane.v3-braun
+  .sidebar-body
+  .worktree-main-sessions
+  .agent-row.active,
+.chat-list-pane.v3-braun
+  .sidebar-body
+  .worktree-main-sessions
+  .session-row.active {
+  border-left-color: color-mix(in srgb, var(--color-text-secondary) 40%, transparent);
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.chat-list-pane.v3-braun
+  .sidebar-body
+  .worktree-main-sessions
+  .conversation-title
+  strong {
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+/* 其他工作区：无灰底卡片，仅顶部分隔线 */
+.chat-list-pane.v3-braun .sidebar-body .worktree-sandbox-list {
+  margin: 6px 2px 6px 12px;
+  padding: 4px 0 2px;
+  background: transparent;
+  border: none;
+}
 .chat-list-pane.v3-braun .sidebar-body .worktree-sandbox-toolbar {
-  margin-left: 0;
-  padding: var(--space-1) 0;
+  margin: 0 0 6px;
+  padding: 4px 4px 6px;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--color-border-subtle) 88%, transparent);
+  background: transparent;
+}
+
+/* 每个子 worktree 自成一组：透明底，避免灰块嵌套 */
+.chat-list-pane.v3-braun .sidebar-body .worktree-group {
+  margin-top: 2px;
+  padding: 2px 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.chat-list-pane.v3-braun .sidebar-body .worktree-group + .worktree-group {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--color-border-subtle) 85%, transparent);
+}
+.chat-list-pane.v3-braun .sidebar-body .worktree-group.is-active-group {
+  background: transparent;
+  box-shadow: none;
+}
+.chat-list-pane.v3-braun .sidebar-body .worktree-group .worktree-row {
+  background: transparent;
+}
+.chat-list-pane.v3-braun .sidebar-body .worktree-group .worktree-row:hover {
+  background: var(--color-bg-hover);
+}
+.chat-list-pane.v3-braun .sidebar-body .worktree-group .worktree-row.active {
+  background: transparent;
+  border-left-color: transparent;
+  font-weight: 600;
+}
+
+/* 子会话树：左竖线 + 缩进，明显低于 worktree header */
+.chat-list-pane.v3-braun .sidebar-body .worktree-group-body {
+  margin: 2px 2px 2px 14px;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid
+    color-mix(in srgb, var(--color-border) 55%, transparent);
+  background: transparent;
+}
+.chat-list-pane.v3-braun
+  .sidebar-body
+  .worktree-group-body
+  .worktree-nested-row.agent-row,
+.chat-list-pane.v3-braun
+  .sidebar-body
+  .worktree-group-body
+  .worktree-nested-row.session-row {
+  margin: 2px 0;
+  width: 100%;
+  min-height: 26px;
+  padding: 4px 8px 4px 10px;
+  border-left: 0;
+  background: transparent;
+  color: var(--color-text-tertiary);
+}
+.chat-list-pane.v3-braun
+  .sidebar-body
+  .worktree-group-body
+  .worktree-nested-row:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+.chat-list-pane.v3-braun
+  .sidebar-body
+  .worktree-group-body
+  .worktree-nested-row.active {
+  background: var(--color-bg-hover);
+  border-left: 2px solid
+    color-mix(in srgb, var(--color-text-secondary) 40%, transparent);
+  color: var(--color-text-primary);
+}
+.chat-list-pane.v3-braun
+  .sidebar-body
+  .worktree-group-body
+  .conversation-title
+  strong {
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+.chat-list-pane.v3-braun
+  .sidebar-body
+  .worktree-group-body
+  .worktree-nested-row.active
+  .conversation-title
+  strong {
+  font-weight: 600;
+  color: var(--color-text-primary);
 }
 
 .chat-list-pane.v3-braun .sidebar-body .sidebar-bottom-actions {
