@@ -4,6 +4,9 @@ on:
   schedule:
     - cron: '0 */6 * * *'
   workflow_dispatch:
+  push:
+    branches:
+      - dev
 
 permissions:
   contents: write
@@ -17,6 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
       - uses: narayann7/star-history-action@v1
         with:
           repos: ${{ github.repository }}
+          commit: true
+          commit-message: 'chore: update star history chart [skip ci]'
