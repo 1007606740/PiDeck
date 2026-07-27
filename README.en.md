@@ -12,13 +12,7 @@
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=ayuayue%2FPiDeck&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ayuayue/PiDeck&type=date&theme=dark&legend=top-left&sealed_token=3OSfgPrOsa1WDfOPzHlgAQwVtZWnssk5g44PKx4iUj7pYdk_9HML-LgbzVp3aMM-7hueHrt44qfwWzyMk2hYoxsGpX4n0tC9XpoB_LRYpniN-hw9VDynUQ" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ayuayue/PiDeck&type=date&legend=top-left&sealed_token=3OSfgPrOsa1WDfOPzHlgAQwVtZWnssk5g44PKx4iUj7pYdk_9HML-LgbzVp3aMM-7hueHrt44qfwWzyMk2hYoxsGpX4n0tC9XpoB_LRYpniN-hw9VDynUQ" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ayuayue/PiDeck&type=date&legend=top-left&sealed_token=3OSfgPrOsa1WDfOPzHlgAQwVtZWnssk5g44PKx4iUj7pYdk_9HML-LgbzVp3aMM-7hueHrt44qfwWzyMk2hYoxsGpX4n0tC9XpoB_LRYpniN-hw9VDynUQ" />
- </picture>
-</a>
+[![Star History Chart](https://api.star-history.com/chart?repos=ayuayue/PiDeck&type=date&legend=top-left&sealed_token=3OSfgPrOsa1WDfOPzHlgAQwVtZWnssk5g44PKx4iUj7pYdk_9HML-LgbzVp3aMM-7hueHrt44qfwWzyMk2hYoxsGpX4n0tC9XpoB_LRYpniN-hw9VDynUQ)](https://www.star-history.com/?repos=ayuayue%2FPiDeck&type=date&legend=top-left)
 
 ---
 
