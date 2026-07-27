@@ -923,14 +923,17 @@ body.is-resizing .wechat-shell {
   transition: none;
 }
 .wechat-shell.custom-titlebar-enabled {
-  --window-drag-height: 40px;
+  /* 标题栏收紧：窗口控件更矮，给内容区多留纵向空间 */
+  --window-drag-height: 32px;
+  --window-control-width: 36px;
   padding-top: var(--window-drag-height);
 }
 .window-drag-layer {
   position: fixed;
   top: 0;
   left: 0;
-  right: 200px;
+  /* 右侧留给：右栏切换 + 置顶/最小化/最大化/关闭（5 个控件） */
+  right: calc(var(--window-control-width, 36px) * 5);
   height: var(--window-drag-height);
   z-index: 900;
   background: var(--color-bg-sidebar);
@@ -942,7 +945,8 @@ body.is-resizing .wechat-shell {
   right: 0;
   z-index: 920;
   display: grid;
-  grid-template-columns: repeat(4, 50px);
+  /* 右栏切换 + pin + min + max + close */
+  grid-template-columns: repeat(5, var(--window-control-width, 36px));
   height: var(--window-drag-height);
   background: var(--color-bg-sidebar);
   -webkit-app-region: no-drag;
@@ -954,7 +958,7 @@ body.is-resizing .wechat-shell {
   left: 0;
   z-index: 920;
   display: grid;
-  grid-template-columns: repeat(1, 50px);
+  grid-template-columns: repeat(1, var(--window-control-width, 36px));
   height: var(--window-drag-height);
   background: transparent;
   -webkit-app-region: no-drag;
@@ -973,6 +977,13 @@ body.is-resizing .wechat-shell {
 }
 .window-control svg {
   display: block;
+  width: 13px;
+  height: 13px;
+}
+/* 右侧边栏折叠按钮激活态：表示右栏当前展开 */
+.window-control.drawer-toggle.active {
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-text-primary) 8%, transparent);
 }
 .window-control:hover {
   background: color-mix(in srgb, var(--color-text-primary) 9%, transparent);
@@ -2352,7 +2363,8 @@ body.is-resizing .wechat-shell {
 .agent-row {
   grid-template-columns: minmax(0, 1fr);
   min-height: 28px;
-  padding: 4px 6px 4px 28px;
+  /* 左侧缩进收紧：状态点已移到右侧，文本可更靠左 */
+  padding: 4px 6px 4px 12px;
   margin: 1px 0 0 8px;
   background: transparent;
   color: var(--color-text-secondary);
@@ -2373,8 +2385,14 @@ body.is-resizing .wechat-shell {
   gap: 6px;
   overflow: hidden;
 }
+/* 状态圆点吸到标题行最右侧（标题/徽章在左，圆点在右） */
+.agent-row .conversation-title .agent-status-indicator {
+  margin-left: auto;
+  flex-shrink: 0;
+}
 .agent-row .conversation-title strong {
   flex: 1;
+  min-width: 0;
   color: var(--color-text-secondary);
   font-size: var(--font-size-caption);
   font-weight: 500;
@@ -7978,25 +7996,78 @@ body.is-composer-resizing .composer-resize-handle::after {
   pointer-events: none;
 }
 .drawer-header {
-  height: 55px;
-  flex: 0 0 55px;
+  height: 40px;
+  flex: 0 0 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: 0 var(--space-4) 0 18px;
+  padding: 0 var(--space-3) 0 14px;
   border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-bg-panel);
 }
 .drawer-header strong {
   color: var(--color-text-primary);
-  font-size: var(--font-size-title);
-  line-height: var(--line-height-title);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-control);
   font-weight: 600;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 右侧工具栏统一 chrome：Tabs（文件/Git/浏览器）+ 动作按钮，替代各面板自带大标题头 */
+.drawer-chrome {
+  height: 36px;
+  flex: 0 0 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-2);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-panel);
+  min-width: 0;
+}
+.drawer-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.drawer-tabs::-webkit-scrollbar {
+  display: none;
+}
+.drawer-tab {
+  border: 0;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  border-radius: var(--radius-sm);
+  height: 26px;
+  padding: 0 10px;
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+.drawer-tab:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.drawer-tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.drawer-tab.active {
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+  font-weight: 600;
 }
 .drawer-header-actions {
   display: inline-flex;
@@ -8009,8 +8080,8 @@ body.is-composer-resizing .composer-resize-handle::after {
   background: transparent;
   color: var(--color-text-tertiary);
   border-radius: var(--radius-sm);
-  width: var(--control-height-sm);
-  height: var(--control-height-sm);
+  width: 26px;
+  height: 26px;
   padding: 0;
   display: inline-grid;
   place-items: center;
@@ -8069,7 +8140,8 @@ body.is-composer-resizing .composer-resize-handle::after {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: var(--space-4);
+  /* 统一 chrome 后略收内边距，减少双层 header 的拥挤感 */
+  padding: var(--space-2) var(--space-3) var(--space-3);
   position: relative;
 }
 /* 文件侧栏滚动按钮：复用模型选择器的交互范式，顶部/底部悬浮控制滚动位置。 */
@@ -8189,7 +8261,8 @@ body.is-composer-resizing .composer-resize-handle::after {
   align-items: center;
   color: var(--color-text-tertiary);
   font-size: var(--font-size-caption);
-  margin-bottom: var(--space-3);
+  /* 文件工具栏贴紧统一 Tab chrome，减少双层头的视觉重量 */
+  margin-bottom: var(--space-2);
 }
 
 .panel-action-buttons {
@@ -10082,49 +10155,49 @@ body.is-composer-resizing .composer-resize-handle::after {
   background: transparent;
   flex-shrink: 0;
   line-height: 0;
+  /* 覆盖 .conversation-title span 的 tertiary 文字色，避免污染色点 */
+  color: transparent;
+  font-size: 0;
 }
 
-/* 统一 8px 圆点；starting 改为环形 spinner 复用同一元素 */
+/* 统一 8px 圆点；颜色直接写在 background，不依赖 currentColor
+   （.conversation-title span 会把内部 span 的 color 强制成 tertiary 灰色） */
 .agent-status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   box-sizing: border-box;
-  background: currentColor;
+  background: var(--color-text-tertiary);
 }
 
 /* 空闲：实心蓝点（可响应） */
-.agent-status-indicator.status-idle {
-  color: var(--color-info);
+.agent-status-indicator.status-idle .agent-status-dot {
+  background: var(--color-brand-blue);
 }
 
 /* 运行中：实心黄点 */
-.agent-status-indicator.status-running {
-  color: var(--color-warning);
+.agent-status-indicator.status-running .agent-status-dot {
+  background: #eab308;
 }
 
 /* 启动/加载：灰色缺口圆环持续旋转 */
-.agent-status-indicator.status-starting {
-  color: var(--color-text-tertiary);
-}
-
 .agent-status-indicator.status-starting .agent-status-dot {
   width: 10px;
   height: 10px;
   background: transparent;
-  border: 1.5px solid currentColor;
+  border: 1.5px solid var(--color-text-tertiary);
   border-top-color: transparent;
   animation: agent-status-spin 0.8s linear infinite;
 }
 
 /* 失败：实心红点 */
-.agent-status-indicator.status-error {
-  color: var(--color-danger);
+.agent-status-indicator.status-error .agent-status-dot {
+  background: var(--color-danger);
 }
 
 /* 已关闭：弱化灰点 */
-.agent-status-indicator.status-closed {
-  color: var(--color-text-tertiary);
+.agent-status-indicator.status-closed .agent-status-dot {
+  background: var(--color-text-tertiary);
   opacity: 0.55;
 }
 
@@ -19246,7 +19319,8 @@ html[data-theme="dark"] .scratch-pad-md mark {
   height: auto;
   min-height: var(--control-height-md);
   margin: 2px 0;
-  padding: var(--space-1) var(--space-2);
+  /* 左侧 padding 略收：标题更靠左，右侧留给状态圆点 */
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-1);
   border-left: none;
   border-radius: var(--radius-sm);
   background: var(--color-bg-panel);

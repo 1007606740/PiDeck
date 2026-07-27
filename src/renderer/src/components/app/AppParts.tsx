@@ -4207,12 +4207,12 @@ type EntryAction = {
 export function ConversationOutline(props: {
 	items: Array<{ id: string; role: string; title: string; time: string }>;
 	onJump: (id: string) => void;
+	/** 草稿本入口 */
 	extraAction?: EntryAction;
+	/** 终端入口 */
 	terminalAction?: EntryAction;
-	filesAction?: EntryAction;
-	gitAction?: EntryAction;
+	/** 外部编辑器打开入口 */
 	editorsAction?: EntryAction & { anchorRef?: React.RefObject<HTMLButtonElement | null> };
-	browserAction?: EntryAction;
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const [dragging, setDragging] = useState(false);
@@ -4311,6 +4311,7 @@ export function ConversationOutline(props: {
 				</nav>
 				)}
 			</div>
+			{/* 悬浮按钮组仅保留：会话大纲、草稿本、终端、编辑器打开；文件/Git/浏览器改到右侧 Tab 栏 */}
 			{props.extraAction && (
 				<button
 					type="button"
@@ -4333,28 +4334,6 @@ export function ConversationOutline(props: {
 					{props.terminalAction.icon}
 				</button>
 			)}
-			{props.filesAction && (
-				<button
-					type="button"
-					className={`files-entry${props.filesAction.active ? " active" : ""}`}
-					title={props.filesAction.label}
-					aria-label={props.filesAction.label}
-					onClick={props.filesAction.onClick}
-				>
-					{props.filesAction.icon}
-				</button>
-			)}
-			{props.gitAction && (
-				<button
-					type="button"
-					className={`git-entry${props.gitAction.active ? " active" : ""}`}
-					title={props.gitAction.label}
-					aria-label={props.gitAction.label}
-					onClick={props.gitAction.onClick}
-				>
-					{props.gitAction.icon}
-				</button>
-			)}
 			{props.editorsAction && (
 				<button
 					type="button"
@@ -4364,17 +4343,6 @@ export function ConversationOutline(props: {
 					onClick={props.editorsAction.onClick}
 				>
 					{props.editorsAction.icon}
-				</button>
-			)}
-			{props.browserAction && (
-				<button
-					type="button"
-					className={`browser-entry${props.browserAction.active ? " active" : ""}`}
-					title={props.browserAction.label}
-					aria-label={props.browserAction.label}
-					onClick={props.browserAction.onClick}
-				>
-					{props.browserAction.icon}
 				</button>
 			)}
 		</div>
@@ -4408,6 +4376,8 @@ export function DrawerContent(props: {
 	onTogglePin: () => void;
 	onCollapse: () => void;
 	onClose: () => void;
+	/** 为 true 时隐藏内建 header（由右侧统一 Tab chrome 接管） */
+	hideChrome?: boolean;
 	onFileContextMenu: (node: FileTreeNode, x: number, y: number) => void;
 	onRefreshFiles: () => void;
 	onOpenFolder?: () => void;
@@ -4435,27 +4405,30 @@ export function DrawerContent(props: {
 				: t("drawer.historyTitle");
 	return (
 		<>
-			<div className="drawer-header">
+			{/* 工具面板（文件等）由外层 drawer-chrome 提供 Tab 头，这里只在 sessions 等场景保留标题栏 */}
+			{!props.hideChrome && (
+				<div className="drawer-header">
 					<strong>{title}</strong>
-				<div className="drawer-header-actions">
-					<button
-						className={props.pinned ? "active" : ""}
-						title={props.pinned ? t("drawer.unpin") : t("drawer.pin")}
-						aria-label={props.pinned ? t("drawer.unpin") : t("drawer.pin")}
-						onClick={props.onTogglePin}
-					>
-						<Pin size={15} />
-					</button>
-					<button
-						disabled={props.pinned}
-						title={props.pinned ? t("drawer.pinnedCannotClose") : t("drawer.closePanel")}
-						aria-label={t("drawer.closePanel")}
-						onClick={props.onClose}
-					>
-						<X size={16} />
-					</button>
+					<div className="drawer-header-actions">
+						<button
+							className={props.pinned ? "active" : ""}
+							title={props.pinned ? t("drawer.unpin") : t("drawer.pin")}
+							aria-label={props.pinned ? t("drawer.unpin") : t("drawer.pin")}
+							onClick={props.onTogglePin}
+						>
+							<Pin size={15} />
+						</button>
+						<button
+							disabled={props.pinned}
+							title={props.pinned ? t("drawer.pinnedCannotClose") : t("drawer.closePanel")}
+							aria-label={t("drawer.closePanel")}
+							onClick={props.onClose}
+						>
+							<X size={16} />
+						</button>
+					</div>
 				</div>
-			</div>
+			)}
 			{props.panel === "files" && (
 				<FilesPanel
 					files={props.files}

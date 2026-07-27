@@ -34,7 +34,6 @@ import {
   ListChecks,
   Paperclip,
   Minus,
-  FolderOpen,
   FolderCog,
   FolderPlus,
   Globe,
@@ -52,6 +51,7 @@ import {
   Copy,
   X,
   PanelLeft,
+  PanelRight,
 } from "lucide-react";
 import { subscribeToNotice, showNotice } from "./utils/notice";
 import { createPreviewApi } from "./previewApi";
@@ -949,6 +949,7 @@ export function App() {
       return;
     }
     // 最小化必须真正恢复 Git 抽屉，不能只移除 modal 后把用户留在其他面板。
+    lastToolDrawerRef.current = "git";
     setDrawer("git");
     setDrawerCollapsed(false);
     setGitDiffDisplayMode("drawer");
@@ -1231,6 +1232,8 @@ export function App() {
   const drawerUnmountTimerRef = useRef<number | null>(null);
   /** 打开文件编辑器前所在的抽屉面板，供返回按钮恢复 */
   const prevDrawerPanelRef = useRef<DrawerPanel | null>(null);
+  /** 最近一次右侧工具 Tab（文件/Git/浏览器），供标题栏一键展开恢复 */
+  const lastToolDrawerRef = useRef<"files" | "git" | "browser">("files");
   // 最后一个 editor tab 被关闭时自动收起 drawer
   useEffect(() => {
     if (editorTabs.length === 0 && drawer === "editor") {
@@ -1442,6 +1445,9 @@ export function App() {
         });
       }
       if (panel && canRestorePanel) {
+        if (panel === "files" || panel === "git" || panel === "browser") {
+          lastToolDrawerRef.current = panel;
+        }
         setDrawer(panel);
         setDrawerCollapsed(false);
       } else {
@@ -2386,6 +2392,7 @@ export function App() {
     // 直接在原始 runtimeState 事件上识别 tool true→false，避免 React 把很快的
     // tool_start/tool_end 批量成一次 render 后漏掉 steer 的投递窗口。
     const offOpenInBrowser = api.app.onOpenInBrowser?.((url: string) => {
+      lastToolDrawerRef.current = "browser";
       setDrawer("browser");
       setDrawerCollapsed(false);
       navigateTo(url);
@@ -5690,6 +5697,9 @@ export function App() {
    * 顺序说明：资源管理器复制图片文件时，剪贴板常同时带路径 + 缩略图；
    * 必须先判定文件路径，否则会被误当成截图附加。纯截图无路径，仍走图片分支。
    */
+  /** 判断文件扩展名是否为常见图片格式 */
+  const isImageExt = (p: string) => /(\.(png|jpe?g|gif|webp|bmp))$/i.test(p);
+
   function handlePaste(event: React.ClipboardEvent) {
     const items = Array.from(event.clipboardData.items);
 
@@ -5697,26 +5707,33 @@ export function App() {
     //    需通过 preload 同步读取 Electron clipboard（FileNameW / CF_HDROP 等）
     const clipboardPaths = window.piDesktop.files.getClipboardPaths?.() ?? [];
     if (clipboardPaths.length > 0) {
-      event.preventDefault();
-      insertFilePathRefs(clipboardPaths);
-      return;
-    }
-
-    // 2) 兜底：剪贴板里若有 File 对象（部分场景），用 webUtils 解析路径
-    const fileItems = items.filter((i) => i.kind === "file");
-    if (fileItems.length > 0) {
-      const files = fileItems
-        .map((i) => i.getAsFile())
-        .filter((f): f is File => Boolean(f));
-      const paths = resolveLocalPathsFromFiles(files);
-      if (paths.length > 0) {
+      // 图片文件路径不在此处处理：让它们走到下方 image items 分支，
+      // 保持截图/图片粘贴显示为图片而不是 @path 引用。
+      const nonImagePaths = clipboardPaths.filter((p) => !isImageExt(p));
+      if (nonImagePaths.length > 0) {
         event.preventDefault();
-        insertFilePathRefs(paths);
-        return;
+        insertFilePathRefs(nonImagePaths);
+      }
+      // 如果全部是非图片文件，直接返回
+      if (clipboardPaths.length === nonImagePaths.length) return;
+      // 有图片文件，不返回，继续处理下面的 image items
+    } else {
+      // 2) 兜底：剪贴板里若有 File 对象（部分场景），用 webUtils 解析路径
+      const fileItems = items.filter((i) => i.kind === "file");
+      if (fileItems.length > 0) {
+        const files = fileItems
+          .map((i) => i.getAsFile())
+          .filter((f): f is File => Boolean(f));
+        const paths = resolveLocalPathsFromFiles(files);
+        if (paths.length > 0) {
+          event.preventDefault();
+          insertFilePathRefs(paths);
+          return;
+        }
       }
     }
 
-    // 3) 图片粘贴（截图等位图数据，无本地文件路径）：读取并附加到消息
+    // 3) 图片粘贴（截图等位图数据，或资源管理器复制的图片文件）：读取并附加到消息
     const imageItems = items.filter((i) => i.type.startsWith("image/"));
     if (imageItems.length > 0) {
       event.preventDefault();
@@ -6009,6 +6026,11 @@ export function App() {
     });
   }
 
+  /** 右侧工具栏 Tab 面板（文件/Git/浏览器），与 editor/sessions 区分 */
+  function isToolDrawerPanel(panel: DrawerPanel | null | undefined): panel is "files" | "git" | "browser" {
+    return panel === "files" || panel === "git" || panel === "browser";
+  }
+
   function openDrawer(panel: DrawerPanel) {
     if (panel === "git" && !settings.enableGitManagement) return;
     if (drawerPinned && panel !== drawerPinnedPanel) return;
@@ -6021,12 +6043,47 @@ export function App() {
     if (panel === "files" && activeProjectId) {
       void refreshFiles(activeProjectId, true);
     }
+    if (isToolDrawerPanel(panel)) {
+      lastToolDrawerRef.current = panel;
+    }
     setDrawer((current) => {
       if (current === panel) return drawerPinned ? current : null;
       // 持久化当前项目的抽屉面板状态
       if (activeProjectId) saveDrawerState(activeProjectId, panel, drawerPinned);
       return panel;
     });
+  }
+
+  /** 切换右侧工具 Tab：始终打开目标面板，不走 openDrawer 的“再点一次关闭”逻辑 */
+  function switchToolDrawer(panel: "files" | "git" | "browser") {
+    if (panel === "git" && !settings.enableGitManagement) return;
+    if (drawerPinned && drawerPinnedPanel && drawerPinnedPanel !== panel) return;
+    if (panel !== "git") setGitDrawerDiff(null);
+    if (panel === "files" && activeProjectId) {
+      void refreshFiles(activeProjectId, true);
+    }
+    lastToolDrawerRef.current = panel;
+    setDrawerCollapsed(false);
+    if (activeProjectId) saveDrawerState(activeProjectId, panel, drawerPinned);
+    setDrawer(panel);
+  }
+
+  /** 标题栏右侧按钮：关闭态打开上次工具面板；展开态折叠；已折叠则展开 */
+  function toggleRightDrawer() {
+    if (!drawer) {
+      const preferred =
+        lastToolDrawerRef.current === "git" && !settings.enableGitManagement
+          ? "files"
+          : lastToolDrawerRef.current;
+      switchToolDrawer(preferred);
+      return;
+    }
+    if (drawerCollapsed) {
+      setDrawerCollapsed(false);
+      return;
+    }
+    if (drawerPinned) return;
+    setDrawerCollapsed(true);
   }
 
   function closeDrawer() {
@@ -6187,6 +6244,7 @@ export function App() {
     if (moduleState!.navigateKey) {
       moduleState!.navigateKey = 0;
     }
+    lastToolDrawerRef.current = "browser";
     setDrawer("browser");
     setDrawerCollapsed(false);
   };
@@ -6226,12 +6284,25 @@ export function App() {
             title={listCollapsed ? t("app.expandList") : t("app.collapseList")}
             onClick={toggleListCollapsed}
           >
-            <PanelLeft size={15} strokeWidth={2.2} aria-hidden="true" />
+            <PanelLeft size={13} strokeWidth={2.2} aria-hidden="true" />
           </button>
         </div>
       )}
       {!settings.useNativeTitleBar && (
         <div className="window-controls" aria-label={t("app.windowControls")}>
+          <button
+            type="button"
+            className={`window-control drawer-toggle${drawer && !drawerCollapsed ? " active" : ""}`}
+            aria-label={
+              drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")
+            }
+            title={
+              drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")
+            }
+            onClick={toggleRightDrawer}
+          >
+            <PanelRight size={13} strokeWidth={2.2} aria-hidden="true" />
+          </button>
           <button
             type="button"
             className={`window-control pin${windowAlwaysOnTop ? " active" : ""}`}
@@ -6246,7 +6317,7 @@ export function App() {
               setWindowAlwaysOnTop(next);
             }}
           >
-            <Pin size={15} strokeWidth={2.2} aria-hidden="true" />
+            <Pin size={13} strokeWidth={2.2} aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -6255,7 +6326,7 @@ export function App() {
             title={t("app.windowMinimize")}
             onClick={() => api.app.minimizeWindow()}
           >
-            <Minus size={15} strokeWidth={2.2} aria-hidden="true" />
+            <Minus size={13} strokeWidth={2.2} aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -6264,7 +6335,7 @@ export function App() {
             title={t("app.windowToggleMaximize")}
             onClick={() => api.app.toggleMaximizeWindow()}
           >
-            <Square size={13} strokeWidth={2} aria-hidden="true" />
+            <Square size={11} strokeWidth={2} aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -6273,7 +6344,7 @@ export function App() {
             title={t("app.windowClose")}
             onClick={() => api.app.closeWindow()}
           >
-            <X size={16} strokeWidth={2.2} aria-hidden="true" />
+            <X size={14} strokeWidth={2.2} aria-hidden="true" />
           </button>
         </div>
       )}
@@ -6721,7 +6792,6 @@ export function App() {
                           <span className="agent-node-marker" aria-hidden="true" />
                           <div className="conversation-body">
                             <div className="conversation-title">
-                              {agent.status && <AgentStatusIndicator status={agent.status} />}
                               <strong>{agent.title}</strong>
                               {child.source && child.source !== "pi" && (
                                 <span className={`session-source-badge ${child.source}`}>
@@ -6729,6 +6799,8 @@ export function App() {
                                 </span>
                               )}
                               {renderInlineSubagentToggle}
+                              {/* 状态圆点放标题行最右侧，对齐最近会话列表风格 */}
+                              {agent.status && <AgentStatusIndicator status={agent.status} />}
                             </div>
                           </div>
                         </button>
@@ -6971,7 +7043,6 @@ export function App() {
                                   <span className="agent-node-marker" aria-hidden="true" />
                                   <div className="conversation-body">
                                     <div className="conversation-title">
-                                      {agent.status && <AgentStatusIndicator status={agent.status} />}
                                       <strong>{agent.title}</strong>
                                       {agent.noSession && (
                                         <span
@@ -6987,6 +7058,8 @@ export function App() {
                                           <span className="subagent-inline-count">{totalSubagentCount}</span>
                                         </span>
                                       )}
+                                      {/* 状态圆点放标题行最右侧，对齐最近会话列表风格 */}
+                                      {agent.status && <AgentStatusIndicator status={agent.status} />}
                                     </div>
                                   </div>
                                 </button>
@@ -8333,38 +8406,6 @@ export function App() {
               },
               icon: <Terminal size={17} />,
             } : undefined}
-            filesAction={{
-              active: drawer === "files",
-              label: t("app.files"),
-              onClick: () => {
-                if (drawer === "files" && !drawerCollapsed) {
-                  if (activeProjectId) saveDrawerState(activeProjectId, null, false);
-                  setDrawer(null);
-                } else {
-                  openDrawer("files");
-                  setDrawerCollapsed(false);
-                }
-              },
-              icon: <FolderOpen size={17} />,
-            }}
-            gitAction={settings.enableGitManagement && activeProjectId ? {
-              active: drawer === "git",
-              label: t("drawer.sourceControl"),
-              onClick: () => {
-                if (drawer === "git" && !drawerCollapsed) {
-                  if (gitDrawerDiff) {
-                    closeGitDiff();
-                    return;
-                  }
-                  if (activeProjectId) saveDrawerState(activeProjectId, null, false);
-                  setDrawer(null);
-                } else {
-                  openDrawer("git");
-                  setDrawerCollapsed(false);
-                }
-              },
-              icon: <GitBranch size={17} />,
-            } : undefined}
             editorsAction={{
               active: editorsOpen,
               label: t("app.openWithEditor"),
@@ -8383,20 +8424,6 @@ export function App() {
                 }
               },
               icon: <Code size={17} />,
-            }}
-            browserAction={{
-              active: drawer === "browser",
-              label: t("app.browser"),
-              onClick: () => {
-                if (drawer === "browser" && !drawerCollapsed) {
-                  if (activeProjectId) saveDrawerState(activeProjectId, null, false);
-                  setDrawer(null);
-                } else {
-                  setDrawer("browser");
-                  setDrawerCollapsed(false);
-                }
-              },
-              icon: <Globe size={17} />,
             }}
           />
 
@@ -8448,79 +8475,226 @@ filePath={activeTab.filePath}
               maxFileSizeMB={settings.maxEditorFileSizeMB}
             />
           </Suspense>
-        ) : drawerContentPanel === "browser" && !drawerCollapsed && !browserFullscreen ? (
-          <div className="drawer-content-frame">
-            <BrowserPanel
-              onClose={() => setDrawer(null)}
-              onToggleFullscreen={() => setBrowserFullscreen(true)}
-            />
-          </div>
-        ) : settings.enableGitManagement && drawerContentPanel === "git" && !drawerCollapsed && activeProjectId ? (
-          <div className="drawer-content-frame">
-            <div className="drawer-header">
-              <strong>{t("drawer.sourceControl")}</strong>
-              <div className="drawer-header-actions">
-                <button onClick={collapseDrawer} title={t("drawer.collapsePanel")}>
-                  <Minus size={15} />
+        ) : isToolDrawerPanel(drawerContentPanel) && !drawerCollapsed && !(drawerContentPanel === "browser" && browserFullscreen) ? (
+          <>
+            {/* 统一右侧工具栏：文件 / Git / 浏览器 Tab，避免各面板再套一层大标题头 */}
+            <div className="drawer-chrome">
+              <div className="drawer-tabs" role="tablist" aria-label={t("app.files")}>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`drawer-tab${drawerContentPanel === "files" ? " active" : ""}`}
+                  aria-selected={drawerContentPanel === "files"}
+                  onClick={() => switchToolDrawer("files")}
+                >
+                  {t("drawer.tabFiles")}
                 </button>
-                <button onClick={closeDrawer} title={t("common.close")}>
-                  <X size={15} />
+                {settings.enableGitManagement && (
+                  <button
+                    type="button"
+                    role="tab"
+                    className={`drawer-tab${drawerContentPanel === "git" ? " active" : ""}`}
+                    aria-selected={drawerContentPanel === "git"}
+                    onClick={() => switchToolDrawer("git")}
+                  >
+                    {t("drawer.tabGit")}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  role="tab"
+                  className={`drawer-tab${drawerContentPanel === "browser" ? " active" : ""}`}
+                  aria-selected={drawerContentPanel === "browser"}
+                  onClick={() => switchToolDrawer("browser")}
+                >
+                  {t("drawer.tabBrowser")}
+                </button>
+              </div>
+              <div className="drawer-header-actions">
+                <button
+                  type="button"
+                  className={drawerPinned ? "active" : ""}
+                  title={drawerPinned ? t("drawer.unpin") : t("drawer.pin")}
+                  aria-label={drawerPinned ? t("drawer.unpin") : t("drawer.pin")}
+                  onClick={toggleDrawerPinned}
+                >
+                  <Pin size={14} />
+                </button>
+                <button
+                  type="button"
+                  disabled={drawerPinned}
+                  title={drawerPinned ? t("drawer.pinnedCannotClose") : t("drawer.closePanel")}
+                  aria-label={t("drawer.closePanel")}
+                  onClick={closeDrawer}
+                >
+                  <X size={14} />
                 </button>
               </div>
             </div>
-            <div className="git-drawer-stack" data-detail-open={Boolean(gitDrawerDiff && gitDiffDisplayMode === "drawer")}>
-              <div className="git-drawer-source" aria-hidden={Boolean(gitDrawerDiff && gitDiffDisplayMode === "drawer")}>
-                <GitPanel
-                  projectId={activeProjectId}
-                  projectRoot={activeProject?.path}
-                  commitLog={api.git.commitLog}
-                  commitDetail={api.git.commitDetail}
-                  onOpenCommitFileDiff={openCommitFileDiff}
-                  onOpenWorkspaceFileDiff={openWorkspaceFileDiff}
-                  branchCompare={api.git.branchCompare}
-                  getStatus={api.git.status}
-                  stageFiles={api.git.stage}
-                  unstageFiles={api.git.unstage}
-                  discardFile={api.git.discard}
-                  commit={api.git.commit}
-                  branches={gitInfo.branches}
-                  currentBranch={gitInfo.current}
-                  onSwitchBranch={switchBranch}
-                  onCreateBranch={createBranch}
-                  cherryPick={api.git.cherryPick}
-                  revert={api.git.revert}
-                  reset={api.git.reset}
-                  dropCommit={api.git.dropCommit}
-                  generateCommitMessage={api.git.generateCommitMessage}
-                  gitInit={api.git.init}
-                  push={api.git.push}
-                  pull={api.git.pull}
+
+            {drawerContentPanel === "browser" && (
+              <div className="drawer-content-frame">
+                <BrowserPanel
+                  hideChromeClose
+                  onClose={() => setDrawer(null)}
+                  onToggleFullscreen={() => setBrowserFullscreen(true)}
                 />
               </div>
-              {gitDrawerDiff && gitDrawerDiff.projectId === activeProjectId && gitDiffDisplayMode === "drawer" && (
-                <div className="git-drawer-detail">
-                  <Suspense fallback={<div className="file-diff-loading">Loading...</div>}>
-                    <FileDiffViewer
-                      displayMode="drawer"
-                      onPreviewHtml={handlePreviewHtml}
-filePath={gitDrawerDiff.filePath}
-                      mode="diff"
-                      onToggleMode={toggleGitDiffDisplayMode}
-                      originalContent={gitDrawerDiff.originalContent}
-                      modifiedContent={gitDrawerDiff.modifiedContent}
-                      tabs={[{ id: gitDrawerDiff.filePath, filePath: gitDrawerDiff.filePath, label: gitDrawerDiff.label }]}
-                      activeTabId={gitDrawerDiff.filePath}
-                      onClose={closeGitDiff}
-                      readContent={readEditorFileContent}
-                      theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
-                      maxFileSizeMB={settings.maxEditorFileSizeMB}
-                    />
-                  </Suspense>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : drawerContentPanel && drawerContentPanel !== "browser" && drawerContentPanel !== "editor" && drawerContentPanel !== "git" ? (
+            )}
+
+            {drawerContentPanel === "git" && settings.enableGitManagement && (
+              <div className="drawer-content-frame">
+                {activeProjectId ? (
+                  <div className="git-drawer-stack" data-detail-open={Boolean(gitDrawerDiff && gitDiffDisplayMode === "drawer")}>
+                    <div className="git-drawer-source" aria-hidden={Boolean(gitDrawerDiff && gitDiffDisplayMode === "drawer")}>
+                      <GitPanel
+                        projectId={activeProjectId}
+                        projectRoot={activeProject?.path}
+                        commitLog={api.git.commitLog}
+                        commitDetail={api.git.commitDetail}
+                        onOpenCommitFileDiff={openCommitFileDiff}
+                        onOpenWorkspaceFileDiff={openWorkspaceFileDiff}
+                        branchCompare={api.git.branchCompare}
+                        getStatus={api.git.status}
+                        stageFiles={api.git.stage}
+                        unstageFiles={api.git.unstage}
+                        discardFile={api.git.discard}
+                        commit={api.git.commit}
+                        branches={gitInfo.branches}
+                        currentBranch={gitInfo.current}
+                        onSwitchBranch={switchBranch}
+                        onCreateBranch={createBranch}
+                        cherryPick={api.git.cherryPick}
+                        revert={api.git.revert}
+                        reset={api.git.reset}
+                        dropCommit={api.git.dropCommit}
+                        generateCommitMessage={api.git.generateCommitMessage}
+                        gitInit={api.git.init}
+                        push={api.git.push}
+                        pull={api.git.pull}
+                      />
+                    </div>
+                    {gitDrawerDiff && gitDrawerDiff.projectId === activeProjectId && gitDiffDisplayMode === "drawer" && (
+                      <div className="git-drawer-detail">
+                        <Suspense fallback={<div className="file-diff-loading">Loading...</div>}>
+                          <FileDiffViewer
+                            displayMode="drawer"
+                            onPreviewHtml={handlePreviewHtml}
+                            filePath={gitDrawerDiff.filePath}
+                            mode="diff"
+                            onToggleMode={toggleGitDiffDisplayMode}
+                            originalContent={gitDrawerDiff.originalContent}
+                            modifiedContent={gitDrawerDiff.modifiedContent}
+                            tabs={[{ id: gitDrawerDiff.filePath, filePath: gitDrawerDiff.filePath, label: gitDrawerDiff.label }]}
+                            activeTabId={gitDrawerDiff.filePath}
+                            onClose={closeGitDiff}
+                            readContent={readEditorFileContent}
+                            theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
+                            maxFileSizeMB={settings.maxEditorFileSizeMB}
+                          />
+                        </Suspense>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="config-empty">{t("drawer.sourceControl")}</div>
+                )}
+              </div>
+            )}
+
+            {drawerContentPanel === "files" && (
+              <LazyWrapper
+                className="drawer-content-frame"
+                enabled={true}
+                threshold={0}
+                rootMargin="50px"
+                placeholder={
+                  <div style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    color: "var(--text-secondary)",
+                    fontSize: "14px"
+                  }}>
+                    加载中...
+                  </div>
+                }
+              >
+                <DrawerContent
+                  hideChrome
+                  panel="files"
+                  files={files}
+                  sessions={[]}
+                  sessionsLoading={false}
+                  expandedDirs={expandedDirs}
+                  onToggleDirectory={toggleDirectory}
+                  onCollapseAllDirectories={collapseAllDirectories}
+                  onExpandAllDirectories={expandAllDirectories}
+                  pinned={drawerPinned}
+                  onTogglePin={toggleDrawerPinned}
+                  onCollapse={collapseDrawer}
+                  onClose={closeDrawer}
+                  onFileContextMenu={(node, x, y) => {
+                    setFileMenu({ node, x, y });
+                    try {
+                      const paths = api.files.getClipboardPaths();
+                      setHasClipboardFiles(paths.length > 0);
+                    } catch { setHasClipboardFiles(false); }
+                  }}
+                  onRefreshFiles={() => {
+                    refreshFiles(activeProjectId);
+                  }}
+                  onOpenFolder={() => {
+                    const p = projects.find((p) => p.id === activeProjectId);
+                    if (p) void api.files.open(p.path);
+                  }}
+                  onRefreshSessions={() => undefined}
+                  onOpenSession={() => undefined}
+                  onRenameSession={async () => undefined}
+                  onCopySession={() => undefined}
+                  onExportSession={() => undefined}
+                  onDeleteSession={() => undefined}
+                  onViewFile={viewFilePath}
+                  onOpenFile={openFilePath}
+                  onDropFiles={(targetDir, fileList) => {
+                    const paths: string[] = [];
+                    for (let i = 0; i < fileList.length; i++) {
+                      const file = fileList.item(i);
+                      if (file) {
+                        const p = api.files.getPathForFile(file);
+                        if (p) paths.push(p);
+                      }
+                    }
+                    if (paths.length > 0 && activeProjectId) {
+                      void api.files.copy(paths, targetDir).then(() => {
+                        void refreshFiles(activeProjectId);
+                        showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
+                      });
+                    }
+                  }}
+                  onPasteFiles={(targetDir) => {
+                    try {
+                      const paths = api.files.getClipboardPaths();
+                      if (paths.length > 0 && activeProjectId) {
+                        void api.files.copy(paths, targetDir).then(() => {
+                          void refreshFiles(activeProjectId);
+                          showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
+                        });
+                      }
+                    } catch { /* 剪贴板不可用 */ }
+                  }}
+                  onCreateItem={(parentDir, name, type) => {
+                    void api.files.create(parentDir, name, type).then(() => {
+                      if (activeProjectId) void refreshFiles(activeProjectId);
+                    });
+                  }}
+                  projectRoot={projects.find((p) => p.id === activeProjectId)?.path}
+                />
+              </LazyWrapper>
+            )}
+          </>
+        ) : drawerContentPanel === "sessions" && !drawerCollapsed ? (
           <LazyWrapper
             className="drawer-content-frame"
             enabled={true}
@@ -8540,8 +8714,8 @@ filePath={gitDrawerDiff.filePath}
             }
           >
             <DrawerContent
-              panel={drawerContentPanel}
-              project={drawerContentPanel === "sessions" ? sessionsProject : undefined}
+              panel="sessions"
+              project={sessionsProject}
               files={files}
               sessions={(sessionsProjectId && sessionSourceFilter[sessionsProjectId]) ? sessions.filter(
                 (s) => !s.parentSessionPath && (sessionSourceFilter[sessionsProjectId]!)!.has(s.source ?? "pi"),
@@ -8557,7 +8731,6 @@ filePath={gitDrawerDiff.filePath}
               onClose={closeDrawer}
               onFileContextMenu={(node, x, y) => {
                 setFileMenu({ node, x, y });
-                // 检测剪贴板是否有文件路径（异步），用于显示「粘贴」选项
                 try {
                   const paths = api.files.getClipboardPaths();
                   setHasClipboardFiles(paths.length > 0);
@@ -8594,38 +8767,6 @@ filePath={gitDrawerDiff.filePath}
               onDeleteSession={deleteHistorySession}
               onViewFile={viewFilePath}
               onOpenFile={openFilePath}
-              onDropFiles={(targetDir, fileList) => {
-                const paths: string[] = [];
-                for (let i = 0; i < fileList.length; i++) {
-                  const file = fileList.item(i);
-                  if (file) {
-                    const p = api.files.getPathForFile(file);
-                    if (p) paths.push(p);
-                  }
-                }
-                if (paths.length > 0 && activeProjectId) {
-                  void api.files.copy(paths, targetDir).then(() => {
-                    void refreshFiles(activeProjectId);
-                    showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
-                  });
-                }
-              }}
-              onPasteFiles={(targetDir) => {
-                try {
-                  const paths = api.files.getClipboardPaths();
-                  if (paths.length > 0 && activeProjectId) {
-                    void api.files.copy(paths, targetDir).then(() => {
-                      void refreshFiles(activeProjectId);
-                      showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
-                    });
-                  }
-                } catch { /* 剪贴板不可用 */ }
-              }}
-              onCreateItem={(parentDir, name, type) => {
-                void api.files.create(parentDir, name, type).then(() => {
-                  if (activeProjectId) void refreshFiles(activeProjectId);
-                });
-              }}
               projectRoot={projects.find((p) => p.id === activeProjectId)?.path}
             />
           </LazyWrapper>
@@ -9596,6 +9737,7 @@ filePath={gitDrawerDiff.filePath}
               onClose={() => setBrowserFullscreen(false)}
               onMinimize={() => {
                 setBrowserFullscreen(false);
+                lastToolDrawerRef.current = "browser";
                 setDrawer("browser");
                 setDrawerCollapsed(false);
               }}
