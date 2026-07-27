@@ -10069,7 +10069,7 @@ body.is-composer-resizing .composer-resize-handle::after {
   }
 }
 
-/* 项目列表 Agent 状态：纯图标，去掉长文字徽章，避免挤占标题 */
+/* 项目列表 Agent 状态：右侧色点，对齐最近会话列表风格，避免挤占标题 */
 .agent-status-indicator {
   display: inline-flex;
   align-items: center;
@@ -10084,40 +10084,54 @@ body.is-composer-resizing .composer-resize-handle::after {
   line-height: 0;
 }
 
-.agent-status-indicator svg {
-  display: block;
+/* 统一 8px 圆点；starting 改为环形 spinner 复用同一元素 */
+.agent-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: currentColor;
 }
 
-/* starting 的 Loader2 持续旋转 */
-.agent-status-spin {
-  animation: agent-status-spin 0.9s linear infinite;
+/* 空闲：实心蓝点（可响应） */
+.agent-status-indicator.status-idle {
+  color: var(--color-info);
+}
+
+/* 运行中：实心黄点 */
+.agent-status-indicator.status-running {
+  color: var(--color-warning);
+}
+
+/* 启动/加载：灰色缺口圆环持续旋转 */
+.agent-status-indicator.status-starting {
+  color: var(--color-text-tertiary);
+}
+
+.agent-status-indicator.status-starting .agent-status-dot {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  animation: agent-status-spin 0.8s linear infinite;
+}
+
+/* 失败：实心红点 */
+.agent-status-indicator.status-error {
+  color: var(--color-danger);
+}
+
+/* 已关闭：弱化灰点 */
+.agent-status-indicator.status-closed {
+  color: var(--color-text-tertiary);
+  opacity: 0.55;
 }
 
 @keyframes agent-status-spin {
   to {
     transform: rotate(360deg);
   }
-}
-
-.agent-status-indicator.status-running {
-  color: var(--color-accent);
-}
-
-.agent-status-indicator.status-idle {
-  color: var(--color-text-tertiary);
-}
-
-.agent-status-indicator.status-starting {
-  color: var(--color-warning);
-}
-
-.agent-status-indicator.status-error {
-  color: var(--color-danger);
-}
-
-.agent-status-indicator.status-closed {
-  color: var(--color-text-tertiary);
-  opacity: 0.7;
 }
 
 @keyframes pulse-indicator {
@@ -19541,12 +19555,11 @@ html[data-theme="dark"] .scratch-pad-md mark {
   font-weight: 600;
 }
 
-/* 子会话树：左竖线 + 缩进，明显低于 worktree header */
+/* 子会话树：缩进，明显低于 worktree header */
 .chat-list-pane.v3-braun .sidebar-body .worktree-group-body {
   margin: 2px 2px 2px 14px;
   padding: 2px 0 2px 10px;
-  border-left: 2px solid
-    color-mix(in srgb, var(--color-border) 55%, transparent);
+  border-left: none;
   background: transparent;
 }
 .chat-list-pane.v3-braun
@@ -19577,8 +19590,7 @@ html[data-theme="dark"] .scratch-pad-md mark {
   .worktree-group-body
   .worktree-nested-row.active {
   background: var(--color-bg-hover);
-  border-left: 2px solid
-    color-mix(in srgb, var(--color-text-secondary) 40%, transparent);
+  border-left: none;
   color: var(--color-text-primary);
 }
 .chat-list-pane.v3-braun
