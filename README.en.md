@@ -10,7 +10,17 @@
 ![React](https://img.shields.io/badge/React-19-61dafb)
 ![Version](https://img.shields.io/badge/version-0.6.6-yellow)
 
-[![Star History](https://img.shields.io/badge/Star%20History-⭐-gold)](https://www.star-history.com/#ayuayue/PiDeck&Date)
+## Star History
+
+<a href="https://www.star-history.com/?repos=ayuayue%2FPiDeck&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ayuayue/PiDeck&type=date&theme=dark&legend=top-left&sealed_token=3OSfgPrOsa1WDfOPzHlgAQwVtZWnssk5g44PKx4iUj7pYdk_9HML-LgbzVp3aMM-7hueHrt44qfwWzyMk2hYoxsGpX4n0tC9XpoB_LRYpniN-hw9VDynUQ" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ayuayue/PiDeck&type=date&legend=top-left&sealed_token=3OSfgPrOsa1WDfOPzHlgAQwVtZWnssk5g44PKx4iUj7pYdk_9HML-LgbzVp3aMM-7hueHrt44qfwWzyMk2hYoxsGpX4n0tC9XpoB_LRYpniN-hw9VDynUQ" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ayuayue/PiDeck&type=date&legend=top-left&sealed_token=3OSfgPrOsa1WDfOPzHlgAQwVtZWnssk5g44PKx4iUj7pYdk_9HML-LgbzVp3aMM-7hueHrt44qfwWzyMk2hYoxsGpX4n0tC9XpoB_LRYpniN-hw9VDynUQ" />
+ </picture>
+</a>
+
+---
 
 **PiDeck** is an open-source pi desktop workbench for managing pi Agent sessions across local project folders, with import support for local Codex and Claude sessions so you can browse and restore them in one place. Built with Electron + TypeScript, it provides multi-project workspace management, AI session history, Git integration, built-in terminal, visual config management, and plugin extensions—so local AI coding assistants stay consistent, traceable, and configurable across projects.
 

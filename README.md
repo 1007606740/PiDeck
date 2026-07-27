@@ -10,7 +10,17 @@
 ![React](https://img.shields.io/badge/React-19-61dafb)
 ![Version](https://img.shields.io/badge/version-0.6.6-yellow)
 
-[![Star History](https://img.shields.io/badge/Star%20History-⭐-gold)](https://www.star-history.com/#ayuayue/PiDeck&Date)
+## Star History
+
+<a href="https://www.star-history.com/?repos=ayuayue%2FPiDeck&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ayuayue/PiDeck&type=date&theme=dark&legend=top-left&sealed_token=3OSfgPrOsa1WDfOPzHlgAQwVtZWnssk5g44PKx4iUj7pYdk_9HML-LgbzVp3aMM-7hueHrt44qfwWzyMk2hYoxsGpX4n0tC9XpoB_LRYpniN-hw9VDynUQ" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ayuayue/PiDeck&type=date&legend=top-left&sealed_token=3OSfgPrOsa1WDfOPzHlgAQwVtZWnssk5g44PKx4iUj7pYdk_9HML-LgbzVp3aMM-7hueHrt44qfwWzyMk2hYoxsGpX4n0tC9XpoB_LRYpniN-hw9VDynUQ" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ayuayue/PiDeck&type=date&legend=top-left&sealed_token=3OSfgPrOsa1WDfOPzHlgAQwVtZWnssk5g44PKx4iUj7pYdk_9HML-LgbzVp3aMM-7hueHrt44qfwWzyMk2hYoxsGpX4n0tC9XpoB_LRYpniN-hw9VDynUQ" />
+ </picture>
+</a>
+
+---
 
 **PiDeck** 是一个开源的Pi桌面工作台，用于在本地项目目录中统一管理 pi Agent 会话，并支持导入 Codex、Claude 本地会话以便统一浏览和恢复。基于 Electron + TypeScript 构建，提供多项目工作区、AI 会话管理、Git 集成、内置终端、模型配置和插件扩展能力，让本地 AI 编码助手在多项目环境中保持统一、可追溯、可配置。
 
