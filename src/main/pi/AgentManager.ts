@@ -748,10 +748,44 @@ export class AgentManager {
 			cwd: diag?.cwd,
 		});
 
-		// 启动后先获取状态，get_messages 必须等状态就绪后再发送，
-		// 确保 pi 进程已完全加载会话文件，避免竞态导致返回空结果。
+		// 启动后先获取状态，get_messages 必须等状态就绪后再发送。
+		// 添加自动重试机制补偿 pi 初始化期间的瞬时延迟（如系统负载高、会话语料加载慢、
+		// 反病毒扫描），避免一次超时就永久标记为启动失败——用户反馈重启即可恢复说明进程本身正常。
 		void this.appLogger?.info("agent", "Agent get_state request start", { agentId: id });
-		const statePromise = client.request({ type: "get_state" });
+		// 单次 get_state 超时 45s，配合重试覆盖 pi 初始化期间的瞬时延迟。
+		const GET_STATE_TIMEOUT_MS = 45_000;
+		const GET_STATE_RETRIES = 2;
+		const GET_STATE_RETRY_DELAY_MS = 2_000;
+		void this.appLogger?.info("agent", "Agent get_state retry config", {
+			agentId: id,
+			timeoutMs: GET_STATE_TIMEOUT_MS,
+			maxRetries: GET_STATE_RETRIES,
+		});
+		/**
+		 * 带退避重试的 get_state：如果第一次超时但进程仍在运行，等待退避后重试，
+		 * 最多尝试 (1 + GET_STATE_RETRIES) 次。进程退出时立即停止重试，避免等待僵尸进程。
+		 */
+		const statePromise = (async (): Promise<RpcResponse> => {
+			for (let attempt = 0; attempt <= GET_STATE_RETRIES; attempt++) {
+				try {
+					return await client.request({ type: "get_state" }, GET_STATE_TIMEOUT_MS);
+				} catch (err) {
+					const isRunning = process.isRunning();
+					void this.appLogger?.warn("agent", `Agent get_state attempt ${attempt + 1}/${GET_STATE_RETRIES + 1} failed`, {
+						agentId: id,
+						attempt: attempt + 1,
+						totalAttempts: GET_STATE_RETRIES + 1,
+						error: err instanceof Error ? err.message : String(err),
+						processRunning: isRunning,
+					});
+					// 进程已退出 → 不再重试；重试耗尽 → 上报最终错误
+					if (!isRunning || attempt >= GET_STATE_RETRIES) throw err;
+					// 进程仍在运行：退避等待后重试（间隔递增：2s, 4s）
+					await new Promise(resolve => setTimeout(resolve, GET_STATE_RETRY_DELAY_MS * (attempt + 1)));
+				}
+			}
+			throw new Error("Unreachable: get_state retry loop exhausted");
+		})();
 		const historyLoadDecision = this.getHistoryAutoLoadDecision(input.sessionPath);
 
 		// ... 事件监听器（省略，与原来一致）
@@ -1000,7 +1034,10 @@ export class AgentManager {
 					lines.push("1. 在终端执行 pi --mode rpc 看是否能正常启动");
 					lines.push("2. 注意终端中的错误信息，根据异常信息修复");
 				} else if (!stderrText && diag.exitCode === null) {
-					lines.push("1. pi 进程可能尚未完成初始化，可在设置页增加 RPC 超时时间");
+					// 已有自动重试机制（最多 3 次 × 15s），仍超时说明并非瞬时延迟，
+					// 而是 pi 进程初始化确实受阻（如文件解析死锁、网络请求阻塞）。
+					lines.push("1. 桌面端已自动重试 get_state 3 次，但 pi 仍未响应。");
+					lines.push("2. 在终端执行 pi --mode rpc 看是否能正常启动，注意终端中的错误信息");
 				} else {
 					lines.push("1. 在终端执行 pi --mode rpc 确认 pi 能否正常启动");
 					lines.push("2. 检查设置中的 pi 路径是否正确");
