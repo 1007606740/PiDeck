@@ -800,6 +800,7 @@ export function App() {
     y: number;
     node: FileTreeNode;
   } | null>(null);
+  const [hasClipboardFiles, setHasClipboardFiles] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string;
     message: string;
@@ -8552,7 +8553,14 @@ filePath={gitDrawerDiff.filePath}
               onTogglePin={toggleDrawerPinned}
               onCollapse={collapseDrawer}
               onClose={closeDrawer}
-              onFileContextMenu={(node, x, y) => setFileMenu({ node, x, y })}
+              onFileContextMenu={(node, x, y) => {
+                setFileMenu({ node, x, y });
+                // 检测剪贴板是否有文件路径（异步），用于显示「粘贴」选项
+                try {
+                  const paths = api.files.getClipboardPaths();
+                  setHasClipboardFiles(paths.length > 0);
+                } catch { setHasClipboardFiles(false); }
+              }}
               onRefreshFiles={() => {
                 refreshFiles(activeProjectId);
               }}
@@ -8584,6 +8592,33 @@ filePath={gitDrawerDiff.filePath}
               onDeleteSession={deleteHistorySession}
               onViewFile={viewFilePath}
               onOpenFile={openFilePath}
+              onDropFiles={(targetDir, fileList) => {
+                const paths: string[] = [];
+                for (let i = 0; i < fileList.length; i++) {
+                  const file = fileList.item(i);
+                  if (file) {
+                    const p = api.files.getPathForFile(file);
+                    if (p) paths.push(p);
+                  }
+                }
+                if (paths.length > 0 && activeProjectId) {
+                  void api.files.copy(paths, targetDir).then(() => {
+                    void refreshFiles(activeProjectId);
+                    showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
+                  });
+                }
+              }}
+              onPasteFiles={(targetDir) => {
+                try {
+                  const paths = api.files.getClipboardPaths();
+                  if (paths.length > 0 && activeProjectId) {
+                    void api.files.copy(paths, targetDir).then(() => {
+                      void refreshFiles(activeProjectId);
+                      showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
+                    });
+                  }
+                } catch { /* 剪贴板不可用 */ }
+              }}
               onCreateItem={(parentDir, name, type) => {
                 void api.files.create(parentDir, name, type).then(() => {
                   if (activeProjectId) void refreshFiles(activeProjectId);
@@ -8606,6 +8641,19 @@ filePath={gitDrawerDiff.filePath}
       {fileMenu && (
         <FileContextMenu
           menu={fileMenu}
+          hasClipboardFiles={hasClipboardFiles}
+          onPaste={(targetDir) => {
+            try {
+              const paths = api.files.getClipboardPaths();
+              if (paths.length > 0 && activeProjectId) {
+                void api.files.copy(paths, targetDir).then(() => {
+                  void refreshFiles(activeProjectId);
+                  showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
+                });
+              }
+            } catch { /* 剪贴板不可用 */ }
+            setFileMenu(null);
+          }}
           onClose={() => setFileMenu(null)}
           onOpen={() => {
             void api.files.open(fileMenu.node.path);

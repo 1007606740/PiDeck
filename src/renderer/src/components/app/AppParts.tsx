@@ -3536,12 +3536,12 @@ function renderChipText(text: string, onOpenFile?: (path: string) => void, valid
 function MathSpan(props: React.HTMLAttributes<HTMLSpanElement>) {
 	const { className, children, ...spanProps } = props;
 	const ref = useRef<HTMLSpanElement | null>(null);
+	const [copied, setCopied] = useState(false);
 	const isDisplayMath = /\bkatex-display\b/.test(className ?? "");
 	// 只对 KaTeX 最外层 span 添加复制按钮，内部嵌套的 katex-mathml / katex-html 等直接透传。
 	// 行内公式外层 class 精确为 "katex"，块级外层为 "katex-display"（可能同时含 "katex"）。
 	const isOuterKatex = isDisplayMath || className === "katex";
 	if (!isOuterKatex) return <span className={className} {...spanProps}>{children}</span>;
-	const [copied, setCopied] = useState(false);
 	const copyMath = () => {
 		const annotation = ref.current?.querySelector('annotation[encoding="application/x-tex"]');
 		const source = annotation?.textContent || extractText(children);
@@ -3569,10 +3569,10 @@ function CodeBlock(props: React.HTMLAttributes<HTMLPreElement>) {
 		: undefined;
 	const languageClass = codeProps?.className ?? "";
 	const text = extractText(codeProps?.children ?? props.children);
+	const [copied, setCopied] = useState(false);
 	if (/\blanguage-mermaid\b/i.test(languageClass)) {
 		return <MermaidDiagram chart={text} />;
 	}
-	const [copied, setCopied] = useState(false);
 	const handleCopy = () => {
 		navigator.clipboard.writeText(text);
 		setCopied(true);
@@ -4446,6 +4446,10 @@ export function DrawerContent(props: {
 	onCreateItem?: (parentDir: string, name: string, type: "file" | "directory") => void;
 	/** 项目根目录路径 */
 	projectRoot?: string;
+	/** 从 OS 拖入文件到目录 */
+	onDropFiles?: (targetDir: string, files: FileList) => void;
+	/** 粘贴剪贴板文件到目标目录 */
+	onPasteFiles?: (targetDir: string) => void;
 }) {
 	const title =
 		props.panel === "files"
@@ -4490,6 +4494,8 @@ export function DrawerContent(props: {
 					onViewFile={props.onViewFile}
 					onCreateItem={props.onCreateItem}
 					currentProjectRoot={props.projectRoot}
+					onDropFiles={props.onDropFiles}
+					onPasteFiles={props.onPasteFiles}
 				/>
 			)}
 			{props.panel === "sessions" && (
@@ -4523,6 +4529,10 @@ function FilesPanel(props: {
 	onCreateItem?: (parentDir: string, name: string, type: "file" | "directory") => void;
 	/** 项目根目录路径 */
 	currentProjectRoot?: string;
+	/** 从 OS 拖入文件到目录或面板空白区域 */
+	onDropFiles?: (targetDir: string, files: FileList) => void;
+	/** 粘贴剪贴板文件到目标目录（Ctrl+V / 工具栏按钮 / 右键菜单） */
+	onPasteFiles?: (targetDir: string) => void;
 }) {
 	const panelRef = useRef<HTMLDivElement>(null);
 	const [showScrollTop, setShowScrollTop] = useState(false);
@@ -4530,6 +4540,23 @@ function FilesPanel(props: {
 	// Electron renderer 不支持 window.prompt；新建文件/文件夹走应用内小弹层。
 	const [createItemOpen, setCreateItemOpen] = useState(false);
 	const [createItemName, setCreateItemName] = useState("");
+	/** 拖入高亮的目标目录路径（null = 拖在面板空白区域无高亮） */
+	const [dragOverDir, setDragOverDir] = useState<string | null>(null);
+	const dragCountRef = useRef(0);
+
+	// 面板自身接受拖入：落在空白区域视为复制到项目根目录
+	const handlePanelDragOver = useCallback((e: React.DragEvent) => {
+		e.preventDefault();
+		e.dataTransfer.dropEffect = "copy";
+	}, []);
+	const handlePanelDrop = useCallback((e: React.DragEvent) => {
+		e.preventDefault();
+		setDragOverDir(null);
+		dragCountRef.current = 0;
+		if (e.dataTransfer.files.length > 0 && props.onDropFiles && props.currentProjectRoot) {
+			props.onDropFiles(props.currentProjectRoot, e.dataTransfer.files);
+		}
+	}, []);
 
 	const handleScroll = useCallback(() => {
 		const el = panelRef.current;
@@ -4573,7 +4600,33 @@ function FilesPanel(props: {
 	const isAllExpanded = allDirsList.length > 0 && allDirsList.every((d) => props.expandedDirs.has(d));
 
 	return (
-		<div className="files-panel" ref={panelRef}>
+		<div
+			className="files-panel"
+			ref={panelRef}
+			tabIndex={-1}
+			onDragOver={handlePanelDragOver}
+			onDragLeave={() => { setDragOverDir(null); dragCountRef.current = 0; }}
+			onDrop={handlePanelDrop}
+			onKeyDown={(e) => {
+				// Ctrl+V / Cmd+V 粘贴到项目根目录
+				if ((e.ctrlKey || e.metaKey) && e.key === "v") {
+					if (props.onPasteFiles && props.currentProjectRoot) {
+						props.onPasteFiles(props.currentProjectRoot);
+					}
+				}
+			}}
+			onContextMenu={(e) => {
+				// 仅面板背景本身被右键时触发（不拦截文件节点的右键事件）
+				if (e.target !== e.currentTarget) return;
+				e.preventDefault();
+				if (props.currentProjectRoot) {
+					props.onFileContextMenu(
+						{ path: props.currentProjectRoot, name: "", type: "directory", relativePath: "", children: undefined } as FileTreeNode,
+						e.clientX, e.clientY
+					);
+				}
+			}}
+		>
 			<div className="panel-action-row">
 				<div className="panel-action-buttons">
 					{props.onOpenFolder && (
@@ -4651,6 +4704,9 @@ function FilesPanel(props: {
 					onFileContextMenu={props.onFileContextMenu}
 					onOpenFile={props.onOpenFile}
 					onViewFile={props.onViewFile}
+					onDropFiles={props.onDropFiles}
+					dragOverDir={dragOverDir}
+					onDragOverDirChange={setDragOverDir}
 				/>
 			))}
 			{showScrollBottom && (
@@ -4892,6 +4948,10 @@ function FileNode(props: {
 	onOpenFile?: (path: string) => void;
 	onViewFile?: (path: string) => void;
 	depth?: number;
+	/** 拖入文件（仅目录节点使用） */
+	onDropFiles?: (targetDir: string, files: FileList) => void;
+	dragOverDir?: string | null;
+	onDragOverDirChange?: (path: string | null) => void;
 }) {
 	const { node, expandedDirs, onToggleDirectory, depth = 0 } = props;
 	const expanded = expandedDirs.has(node.path);
@@ -4916,12 +4976,36 @@ function FileNode(props: {
 				</button>
 			</div>
 		);
+	const isDragOver = props.dragOverDir === node.path;
+	const handleDragOver = useCallback((e: React.DragEvent) => {
+		e.preventDefault();
+		e.stopPropagation();
+		e.dataTransfer.dropEffect = "copy";
+		props.onDragOverDirChange?.(node.path);
+	}, [node.path]);
+	const handleDragLeave = useCallback(() => {
+		props.onDragOverDirChange?.(null);
+	}, []);
+	const handleDrop = useCallback((e: React.DragEvent) => {
+		e.preventDefault();
+		e.stopPropagation();
+		props.onDragOverDirChange?.(null);
+		if (e.dataTransfer.files.length > 0 && props.onDropFiles) {
+			props.onDropFiles(node.path, e.dataTransfer.files);
+		}
+	}, [node.path, props.onDropFiles]);
 	return (
 		<div className="file-node" style={rowStyle}>
-			<button className="directory file-node-row" style={rowStyle}
+			<button
+				className={`directory file-node-row${isDragOver ? " drag-over" : ""}`}
+				style={rowStyle}
 				onClick={() => onToggleDirectory(node.path)}
 				onContextMenu={menu}
-				title={node.relativePath}>
+				onDragOver={handleDragOver}
+				onDragLeave={handleDragLeave}
+				onDrop={handleDrop}
+				title={node.relativePath}
+			>
 				<span className="file-node-icon">
 					{fileIconElement(node.name, true, expanded)}
 				</span>
@@ -4936,7 +5020,10 @@ function FileNode(props: {
 							onFileContextMenu={props.onFileContextMenu}
 							onOpenFile={props.onOpenFile}
 							onViewFile={props.onViewFile}
-							depth={depth + 1} />
+							depth={depth + 1}
+							onDropFiles={props.onDropFiles}
+							dragOverDir={props.dragOverDir}
+							onDragOverDirChange={props.onDragOverDirChange} />
 					))}
 				</div>
 			)}
@@ -5495,6 +5582,9 @@ export function FileContextMenu(props: {
 	onCopyPath: () => void;
 	onDelete?: () => void;
 	onRename?: () => void;
+	/** 剪贴板中有文件路径时显示「粘贴」选项 */
+	hasClipboardFiles?: boolean;
+	onPaste?: (targetDir: string) => void;
 }) {
 	const menuRef = useRef<HTMLDivElement | null>(null);
 	const [pos, setPos] = useState({ x: props.menu.x, y: props.menu.y });
@@ -5530,10 +5620,15 @@ export function FileContextMenu(props: {
 				<button onClick={props.onReveal}>{t("menu.revealFile")}</button>
 				<button onClick={props.onCopyPath}>{t("menu.copyPath")}</button>
 				{props.onRename && (
-					<button onClick={props.onRename}>{t("common.rename")}</button>
+					<button disabled={!props.menu.node.name} onClick={props.onRename}>{t("common.rename")}</button>
+				)}
+				{props.hasClipboardFiles && props.onPaste && (
+					<button onClick={() => { props.onPaste!(props.menu.node.path); }}>
+						{t("drawer.pasteFiles")}
+					</button>
 				)}
 				{props.onDelete && (
-					<button className="danger" onClick={props.onDelete}>
+					<button className="danger" disabled={!props.menu.node.name} onClick={props.onDelete}>
 						{t("common.delete")}
 					</button>
 				)}

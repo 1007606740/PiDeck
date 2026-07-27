@@ -8133,6 +8133,11 @@ body.is-composer-resizing .composer-resize-handle::after {
   font-weight: 600;
   cursor: default;
 }
+.file-node-row.directory.drag-over {
+  background: color-mix(in srgb, var(--color-info) 12%, var(--color-bg-panel));
+  outline: 1px dashed var(--color-info);
+  outline-offset: -2px;
+}
 .file-node-icon {
   width: 22px;
   color: var(--color-accent);

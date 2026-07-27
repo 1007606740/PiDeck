@@ -13,7 +13,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { basename, join, resolve } from "node:path";
 import { createWriteStream, existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { spawn, type ChildProcess } from "node:child_process";
 import { is } from "@electron-toolkit/utils";
 import { PetSystem, type PetSystemDeps } from "./pet";
@@ -1452,6 +1452,26 @@ function registerIpc() {
 			const result = await fileSystemService.create(parentDir, name, type);
 			void appLogger.info("file", "File/folder created", { parentDir, name, type, result });
 			return result;
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.filesCopy,
+		async (_event, sourcePaths: string[], targetDir: string) => {
+			const results: string[] = [];
+			for (const src of sourcePaths) {
+				try {
+					const name = basename(src);
+					const dest = join(targetDir, name);
+					await cp(src, dest, { recursive: true, errorOnExist: false });
+					results.push(dest);
+					void appLogger.info("file", "File/folder copied", { src, dest });
+				} catch (error) {
+					void appLogger.error("file", "File copy failed", { src, targetDir, error });
+					throw error;
+				}
+			}
+			return results;
 		},
 	);
 

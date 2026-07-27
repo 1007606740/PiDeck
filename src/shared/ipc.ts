@@ -31,6 +31,8 @@ export const ipcChannels = {
 	filesCreate: "files:create",
 	filesDelete: "files:delete",
 	filesRename: "files:rename",
+	/** 复制来源路径到目标目录（支持文件和目录递归） */
+	filesCopy: "files:copy",
 	sessionsList: "sessions:list",
 	sessionsRename: "sessions:rename",
 	sessionsCopy: "sessions:copy",

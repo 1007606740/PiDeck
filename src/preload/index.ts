@@ -286,6 +286,8 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.filesRename, path, newName) as Promise<string>,
 		create: (parentDir: string, name: string, type: "file" | "directory") =>
 			ipcRenderer.invoke(ipcChannels.filesCreate, parentDir, name, type) as Promise<string>,
+		copy: (sourcePaths: string[], targetDir: string) =>
+			ipcRenderer.invoke(ipcChannels.filesCopy, sourcePaths, targetDir) as Promise<string[]>,
 		/**
 		 * Electron 32+ 已移除 File.path，拖拽/粘贴得到的 File 必须经 webUtils 解析本地路径。
 		 * 同步返回，可在 drop/paste 事件中立即使用。
