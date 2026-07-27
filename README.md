@@ -12,7 +12,8 @@
 
 ## Star History
 
-[![Star History](https://img.shields.io/badge/Star%20History-%E2%AD%90-gold)](https://www.star-history.com/#ayuayue/PiDeck&Date)
+<!-- star-history:start -->
+<!-- star-history:end -->
 
 ---
 
