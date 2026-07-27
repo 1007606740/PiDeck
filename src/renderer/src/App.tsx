@@ -898,7 +898,8 @@ export function App() {
     setEditorMode((prev) => {
       const next = prev === "modal" ? "drawer" : "modal";
       if (next === "drawer") {
-        setDrawer("editor");
+        // 侧栏编辑器挂在「文件」Tab 下，避免切到独立 editor 面板后丢失 Files/Git/Browser chrome
+        setDrawer("files");
         setDrawerCollapsed(false);
       }
       return next;
@@ -1230,16 +1231,17 @@ export function App() {
   }, []);
   const [renderedDrawer, setRenderedDrawer] = useState<DrawerPanel | null>(null);
   const drawerUnmountTimerRef = useRef<number | null>(null);
-  /** 打开文件编辑器前所在的抽屉面板，供返回按钮恢复 */
+  /** 打开文件编辑器前所在的抽屉面板（兼容旧路径）；新路径编辑器固定挂在 files Tab */
   const prevDrawerPanelRef = useRef<DrawerPanel | null>(null);
   /** 最近一次右侧工具 Tab（文件/Git/浏览器），供标题栏一键展开恢复 */
   const lastToolDrawerRef = useRef<"files" | "git" | "browser">("files");
-  // 最后一个 editor tab 被关闭时自动收起 drawer
+  // 兼容旧路径：drawer=editor 统一落到 files Tab（编辑器作为 files 子视图）
   useEffect(() => {
-    if (editorTabs.length === 0 && drawer === "editor") {
-      setDrawer(null);
+    if (drawer === "editor") {
+      lastToolDrawerRef.current = "files";
+      setDrawer("files");
     }
-  }, [editorTabs.length, drawer]);
+  }, [drawer]);
   const [sessionsProjectId, setSessionsProjectId] = useState<string>();
   const [sessionHistoryLoading, setSessionHistoryLoading] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -3602,14 +3604,26 @@ export function App() {
     }
   }
 
+  /** 关闭侧栏文件编辑器，回到「文件」Tab 的文件列表（保留右侧工具栏 chrome） */
+  function backToFilesList() {
+    setActiveTabId(null);
+    setEditorTabs([]);
+    setEditorMode("drawer");
+    prevDrawerPanelRef.current = null;
+    lastToolDrawerRef.current = "files";
+    setDrawer("files");
+    setDrawerCollapsed(false);
+  }
+
   function viewFilePath(path: string) {
     // HTML/HTM 文件默认在编辑器中打开（与 .md 一致），
     // 需要预览时通过编辑器工具栏的「浏览器预览」按钮切换到内置浏览器。
     openEditorTab(path, "view");
-    // 始终切换到侧栏模式，确保文件预览在抽屉中渲染
+    // 侧栏编辑器嵌在「文件」Tab 内，顶部 Files/Git/Browser 始终可见，可一键返回文件树
     setEditorMode("drawer");
-    prevDrawerPanelRef.current = drawer;
-    setDrawer("editor");
+    prevDrawerPanelRef.current = "files";
+    lastToolDrawerRef.current = "files";
+    setDrawer("files");
     setDrawerCollapsed(false);
   }
 
@@ -8443,39 +8457,8 @@ export function App() {
         data-open={drawer && !drawerCollapsed}
         data-rendered={Boolean(drawerContentPanel)}
       >
-        {editorMode === "drawer" && drawerContentPanel === "editor" && !drawerCollapsed && activeTab ? (
-          <Suspense fallback={<div className="drawer-content-frame"><div className="file-diff-loading">Loading...</div></div>}>
-            <FileDiffViewer
-              key={activeTab.filePath}
-              displayMode="drawer"
-              onPreviewHtml={handlePreviewHtml}
-filePath={activeTab.filePath}
-              mode={activeTab.mode}
-              onToggleMode={activeTab.preserveDrawer ? undefined : toggleEditorMode}
-              onBack={prevDrawerPanelRef.current && prevDrawerPanelRef.current !== "editor" ? () => {
-                const prev = prevDrawerPanelRef.current;
-                prevDrawerPanelRef.current = null;
-                if (prev) {
-                  setActiveTabId(null);
-                  setEditorTabs([]);
-                  setDrawer(prev);
-                }
-              } : undefined}
-              originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
-              modifiedContent={activeTab.modifiedContent}
-              tabs={editorTabs}
-              activeTabId={activeTabId}
-              onSelectTab={selectEditorTab}
-              onCloseTab={closeEditorTab}
-              onClose={() => { setActiveTabId(null); setEditorTabs([]); setDrawer(null); }}
-              readContent={readEditorFileContent}
-              readOriginalContent={readEditorOriginalContent}
-              saveContent={activeTab.allowSave ? saveEditorFileContent : undefined}
-              theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
-              maxFileSizeMB={settings.maxEditorFileSizeMB}
-            />
-          </Suspense>
-        ) : isToolDrawerPanel(drawerContentPanel) && !drawerCollapsed && !(drawerContentPanel === "browser" && browserFullscreen) ? (
+        {/* editor 面板已并入 files 子视图；渲染时把残留 editor 视作 files，避免 chrome 闪断 */}
+        {(isToolDrawerPanel(drawerContentPanel) || drawerContentPanel === "editor") && !drawerCollapsed && !(drawerContentPanel === "browser" && browserFullscreen) ? (
           <>
             {/* 统一右侧工具栏：文件 / Git / 浏览器 Tab，避免各面板再套一层大标题头 */}
             <div className="drawer-chrome">
@@ -8483,8 +8466,8 @@ filePath={activeTab.filePath}
                 <button
                   type="button"
                   role="tab"
-                  className={`drawer-tab${drawerContentPanel === "files" ? " active" : ""}`}
-                  aria-selected={drawerContentPanel === "files"}
+                  className={`drawer-tab${drawerContentPanel === "files" || drawerContentPanel === "editor" ? " active" : ""}`}
+                  aria-selected={drawerContentPanel === "files" || drawerContentPanel === "editor"}
                   onClick={() => switchToolDrawer("files")}
                 >
                   {t("drawer.tabFiles")}
@@ -8583,6 +8566,7 @@ filePath={activeTab.filePath}
                             filePath={gitDrawerDiff.filePath}
                             mode="diff"
                             onToggleMode={toggleGitDiffDisplayMode}
+                            onBack={closeGitDiff}
                             originalContent={gitDrawerDiff.originalContent}
                             modifiedContent={gitDrawerDiff.modifiedContent}
                             tabs={[{ id: gitDrawerDiff.filePath, filePath: gitDrawerDiff.filePath, label: gitDrawerDiff.label }]}
@@ -8602,96 +8586,136 @@ filePath={activeTab.filePath}
               </div>
             )}
 
-            {drawerContentPanel === "files" && (
-              <LazyWrapper
-                className="drawer-content-frame"
-                enabled={true}
-                threshold={0}
-                rootMargin="50px"
-                placeholder={
-                  <div style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                    color: "var(--text-secondary)",
-                    fontSize: "14px"
-                  }}>
-                    加载中...
+            {(drawerContentPanel === "files" || drawerContentPanel === "editor") && (
+              <div className="drawer-content-frame">
+                {/* 文件列表 + 侧栏编辑器子视图：打开编辑器时覆盖列表，保留顶部 Files/Git/Browser Tab */}
+                <div
+                  className="files-drawer-stack"
+                  data-detail-open={Boolean(editorMode === "drawer" && activeTab)}
+                >
+                  <div
+                    className="files-drawer-source"
+                    aria-hidden={Boolean(editorMode === "drawer" && activeTab)}
+                  >
+                    <LazyWrapper
+                      className="drawer-content-frame"
+                      enabled={true}
+                      threshold={0}
+                      rootMargin="50px"
+                      placeholder={
+                        <div style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          height: "100%",
+                          color: "var(--text-secondary)",
+                          fontSize: "14px"
+                        }}>
+                          加载中...
+                        </div>
+                      }
+                    >
+                      <DrawerContent
+                        hideChrome
+                        panel="files"
+                        files={files}
+                        sessions={[]}
+                        sessionsLoading={false}
+                        expandedDirs={expandedDirs}
+                        onToggleDirectory={toggleDirectory}
+                        onCollapseAllDirectories={collapseAllDirectories}
+                        onExpandAllDirectories={expandAllDirectories}
+                        pinned={drawerPinned}
+                        onTogglePin={toggleDrawerPinned}
+                        onCollapse={collapseDrawer}
+                        onClose={closeDrawer}
+                        onFileContextMenu={(node, x, y) => {
+                          setFileMenu({ node, x, y });
+                          try {
+                            const paths = api.files.getClipboardPaths();
+                            setHasClipboardFiles(paths.length > 0);
+                          } catch { setHasClipboardFiles(false); }
+                        }}
+                        onRefreshFiles={() => {
+                          refreshFiles(activeProjectId);
+                        }}
+                        onOpenFolder={() => {
+                          const p = projects.find((p) => p.id === activeProjectId);
+                          if (p) void api.files.open(p.path);
+                        }}
+                        onRefreshSessions={() => undefined}
+                        onOpenSession={() => undefined}
+                        onRenameSession={async () => undefined}
+                        onCopySession={() => undefined}
+                        onExportSession={() => undefined}
+                        onDeleteSession={() => undefined}
+                        onViewFile={viewFilePath}
+                        onOpenFile={openFilePath}
+                        onDropFiles={(targetDir, fileList) => {
+                          const paths: string[] = [];
+                          for (let i = 0; i < fileList.length; i++) {
+                            const file = fileList.item(i);
+                            if (file) {
+                              const p = api.files.getPathForFile(file);
+                              if (p) paths.push(p);
+                            }
+                          }
+                          if (paths.length > 0 && activeProjectId) {
+                            void api.files.copy(paths, targetDir).then(() => {
+                              void refreshFiles(activeProjectId);
+                              showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
+                            });
+                          }
+                        }}
+                        onPasteFiles={(targetDir) => {
+                          try {
+                            const paths = api.files.getClipboardPaths();
+                            if (paths.length > 0 && activeProjectId) {
+                              void api.files.copy(paths, targetDir).then(() => {
+                                void refreshFiles(activeProjectId);
+                                showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
+                              });
+                            }
+                          } catch { /* 剪贴板不可用 */ }
+                        }}
+                        onCreateItem={(parentDir, name, type) => {
+                          void api.files.create(parentDir, name, type).then(() => {
+                            if (activeProjectId) void refreshFiles(activeProjectId);
+                          });
+                        }}
+                        projectRoot={projects.find((p) => p.id === activeProjectId)?.path}
+                      />
+                    </LazyWrapper>
                   </div>
-                }
-              >
-                <DrawerContent
-                  hideChrome
-                  panel="files"
-                  files={files}
-                  sessions={[]}
-                  sessionsLoading={false}
-                  expandedDirs={expandedDirs}
-                  onToggleDirectory={toggleDirectory}
-                  onCollapseAllDirectories={collapseAllDirectories}
-                  onExpandAllDirectories={expandAllDirectories}
-                  pinned={drawerPinned}
-                  onTogglePin={toggleDrawerPinned}
-                  onCollapse={collapseDrawer}
-                  onClose={closeDrawer}
-                  onFileContextMenu={(node, x, y) => {
-                    setFileMenu({ node, x, y });
-                    try {
-                      const paths = api.files.getClipboardPaths();
-                      setHasClipboardFiles(paths.length > 0);
-                    } catch { setHasClipboardFiles(false); }
-                  }}
-                  onRefreshFiles={() => {
-                    refreshFiles(activeProjectId);
-                  }}
-                  onOpenFolder={() => {
-                    const p = projects.find((p) => p.id === activeProjectId);
-                    if (p) void api.files.open(p.path);
-                  }}
-                  onRefreshSessions={() => undefined}
-                  onOpenSession={() => undefined}
-                  onRenameSession={async () => undefined}
-                  onCopySession={() => undefined}
-                  onExportSession={() => undefined}
-                  onDeleteSession={() => undefined}
-                  onViewFile={viewFilePath}
-                  onOpenFile={openFilePath}
-                  onDropFiles={(targetDir, fileList) => {
-                    const paths: string[] = [];
-                    for (let i = 0; i < fileList.length; i++) {
-                      const file = fileList.item(i);
-                      if (file) {
-                        const p = api.files.getPathForFile(file);
-                        if (p) paths.push(p);
-                      }
-                    }
-                    if (paths.length > 0 && activeProjectId) {
-                      void api.files.copy(paths, targetDir).then(() => {
-                        void refreshFiles(activeProjectId);
-                        showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
-                      });
-                    }
-                  }}
-                  onPasteFiles={(targetDir) => {
-                    try {
-                      const paths = api.files.getClipboardPaths();
-                      if (paths.length > 0 && activeProjectId) {
-                        void api.files.copy(paths, targetDir).then(() => {
-                          void refreshFiles(activeProjectId);
-                          showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
-                        });
-                      }
-                    } catch { /* 剪贴板不可用 */ }
-                  }}
-                  onCreateItem={(parentDir, name, type) => {
-                    void api.files.create(parentDir, name, type).then(() => {
-                      if (activeProjectId) void refreshFiles(activeProjectId);
-                    });
-                  }}
-                  projectRoot={projects.find((p) => p.id === activeProjectId)?.path}
-                />
-              </LazyWrapper>
+                  {editorMode === "drawer" && activeTab && (
+                    <div className="files-drawer-detail">
+                      <Suspense fallback={<div className="file-diff-loading">Loading...</div>}>
+                        <FileDiffViewer
+                          key={activeTab.filePath}
+                          displayMode="drawer"
+                          onPreviewHtml={handlePreviewHtml}
+                          filePath={activeTab.filePath}
+                          mode={activeTab.mode}
+                          onToggleMode={activeTab.preserveDrawer ? undefined : toggleEditorMode}
+                          onBack={backToFilesList}
+                          originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
+                          modifiedContent={activeTab.modifiedContent}
+                          tabs={editorTabs}
+                          activeTabId={activeTabId}
+                          onSelectTab={selectEditorTab}
+                          onCloseTab={closeEditorTab}
+                          onClose={backToFilesList}
+                          readContent={readEditorFileContent}
+                          readOriginalContent={readEditorOriginalContent}
+                          saveContent={activeTab.allowSave ? saveEditorFileContent : undefined}
+                          theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
+                          maxFileSizeMB={settings.maxEditorFileSizeMB}
+                        />
+                      </Suspense>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
           </>
         ) : drawerContentPanel === "sessions" && !drawerCollapsed ? (

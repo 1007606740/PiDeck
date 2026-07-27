@@ -7996,35 +7996,38 @@ body.is-composer-resizing .composer-resize-handle::after {
   pointer-events: none;
 }
 .drawer-header {
-  height: 40px;
-  flex: 0 0 40px;
+  /* 与 .chat-header 对齐：12+30+12 内容区 + 1px 底边线 ≈ 55px */
+  height: 55px;
+  flex: 0 0 55px;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: 0 var(--space-3) 0 14px;
+  padding: 12px 18px;
   border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-bg-panel);
 }
 .drawer-header strong {
   color: var(--color-text-primary);
   font-size: var(--font-size-control);
-  line-height: var(--line-height-control);
+  line-height: 30px;
   font-weight: 600;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 右侧工具栏统一 chrome：Tabs（文件/Git/浏览器）+ 动作按钮，替代各面板自带大标题头 */
+/* 右侧工具栏统一 chrome：高度与左侧 chat-header 底边线对齐，避免开栏后左右 header 错位 */
 .drawer-chrome {
-  height: 36px;
-  flex: 0 0 36px;
+  height: 55px;
+  flex: 0 0 55px;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  padding: 0 var(--space-2) 0 var(--space-2);
+  padding: 12px 18px;
   border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-bg-panel);
   min-width: 0;
@@ -10172,7 +10175,7 @@ body.is-composer-resizing .composer-resize-handle::after {
 
 /* 空闲：实心蓝点（可响应） */
 .agent-status-indicator.status-idle .agent-status-dot {
-  background: var(--color-brand-blue);
+  background: color-mix(in srgb, var(--color-brand-blue) 65%, transparent);
 }
 
 /* 运行中：实心黄点 */
@@ -19928,14 +19931,17 @@ html[data-theme="dark"] .scratch-pad-md mark {
   font-weight: 400;
   line-height: var(--line-height-body);
 }
-.git-drawer-stack {
+/* 右侧抽屉子视图栈：Git diff / 文件编辑器覆盖列表，保留顶部 Tab chrome */
+.git-drawer-stack,
+.files-drawer-stack {
   position: relative;
   display: flex;
   min-height: 0;
   flex: 1;
   overflow: hidden;
 }
-.git-drawer-source {
+.git-drawer-source,
+.files-drawer-source {
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -19944,11 +19950,13 @@ html[data-theme="dark"] .scratch-pad-md mark {
   overflow-x: hidden;
   overscroll-behavior: contain;
 }
-.git-drawer-stack[data-detail-open="true"] .git-drawer-source {
+.git-drawer-stack[data-detail-open="true"] .git-drawer-source,
+.files-drawer-stack[data-detail-open="true"] .files-drawer-source {
   visibility: hidden;
   pointer-events: none;
 }
-.git-drawer-detail {
+.git-drawer-detail,
+.files-drawer-detail {
   position: absolute;
   z-index: 2;
   inset: 0;
@@ -19959,7 +19967,8 @@ html[data-theme="dark"] .scratch-pad-md mark {
 }
 /* FileDiffViewer 是该 flex 容器的直接子项；显式占满可用横向空间，
    避免 Monaco 按行号/变更装饰的最小内容宽度收缩成截图中的窄条。 */
-.git-drawer-detail > .file-diff-viewer {
+.git-drawer-detail > .file-diff-viewer,
+.files-drawer-detail > .file-diff-viewer {
   flex: 1 1 100%;
   width: 100%;
 }

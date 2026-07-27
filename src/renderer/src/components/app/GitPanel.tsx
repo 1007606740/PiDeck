@@ -15,6 +15,8 @@ import {
   ArrowUpFromLine,
   Check,
   ChevronDown,
+  ChevronsDownUp,
+  ChevronsUpDown,
   GitBranch,
   Loader2,
   Plus,
@@ -346,6 +348,18 @@ function groupByDir(
 	return dirs;
 }
 
+/** 收集变更列表中可折叠的目录键（单根无目录头时返回空） */
+function getCollapsibleChangeDirs(
+	resources: import("../../../../shared/types").GitResource[],
+	projectRoot?: string,
+): string[] {
+	const byDir = groupByDir(resources, projectRoot);
+	const dirs = [...byDir.keys()];
+	// 与 FileTree 一致：仅一个根目录时不显示目录头，也就没有可折叠项
+	if (dirs.length === 1 && dirs[0] === "") return [];
+	return dirs;
+}
+
 /** 按目录树渲染文件列表 */
 function FileTree(props: {
 	resources: import("../../../../shared/types").GitResource[];
@@ -357,6 +371,9 @@ function FileTree(props: {
 	onOpenWorkspaceFileDiff: (group: import("../../../../shared/types").GitResourceGroupType, path: string) => void;
 	/** 项目根目录路径，用于显示相对路径 */
 	projectRoot?: string;
+	/** 受控：已折叠目录集合（与父级「收起/展开全部」共享） */
+	collapsedDirs: Set<string>;
+	onToggleDir: (dir: string) => void;
 }) {
 	const byDir = groupByDir(props.resources, props.projectRoot);
 	// 按目录名排序，根目录排最前
@@ -365,16 +382,6 @@ function FileTree(props: {
 		if (b === "") return 1;
 		return a.localeCompare(b);
 	});
-	// 每个目录的折叠状态
-	const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
-	const toggleDir = (dir: string) => {
-		setCollapsedDirs((prev) => {
-			const next = new Set(prev);
-			if (next.has(dir)) next.delete(dir);
-			else next.add(dir);
-			return next;
-		});
-	};
 
 	return (
 		<>
@@ -387,11 +394,11 @@ function FileTree(props: {
 					{!isSingleRoot && (
 						<div
 							className="git-tree-directory"
-							onClick={() => toggleDir(dir)}
+							onClick={() => props.onToggleDir(dir)}
 						>
 							<ChevronDown
 								size={12}
-								className={`git-tree-chevron${collapsedDirs.has(dir) ? "" : " open"}`}
+								className={`git-tree-chevron${props.collapsedDirs.has(dir) ? "" : " open"}`}
 							/>
 							<span className="git-tree-directory-name" title={dir || "/"}>
 								{shortenDir(dir) || "/"}
@@ -399,7 +406,7 @@ function FileTree(props: {
 							<span className="git-tree-directory-count">{resources.length}</span>
 						</div>
 					)}
-					{(!collapsedDirs.has(dir) || isSingleRoot) && resources.map((r) => {
+					{(!props.collapsedDirs.has(dir) || isSingleRoot) && resources.map((r) => {
 						const actions: Array<{
 							label: string;
 							kind: "stage" | "unstage" | "discard";
@@ -902,6 +909,8 @@ export function GitPanel(props: GitPanelProps) {
     staged: true,
     changes: true,
   });
+  /** 变更文件树的目录折叠态（merge/staged/working 共享，供「收起/展开全部」） */
+  const [collapsedChangeDirs, setCollapsedChangeDirs] = useState<Set<string>>(() => new Set());
   const [paneState, setPaneState] = useState<PaneState>(() =>
     readPaneState(props.projectId),
   );
@@ -936,6 +945,7 @@ export function GitPanel(props: GitPanelProps) {
     mutationRunningRef.current = false;
     setMutating(false);
     setResourceOpen({ merge: true, staged: true, changes: true });
+    setCollapsedChangeDirs(new Set());
     setSmartCommitPreference(readSmartCommitPreference(props.projectId));
     setShowSmartCommitPrompt(false);
     setDiscardTarget(null);
@@ -1079,6 +1089,42 @@ export function GitPanel(props: GitPanelProps) {
     !committing &&
     !mutating;
   const total = groups.merge.length + stagedCount + workingChanges.length;
+
+  // 合并 merge/staged/working 的可折叠目录，驱动顶部「收起/展开全部」按钮状态
+  const collapsibleChangeDirs = useMemo(() => {
+    const dirs = new Set<string>();
+    for (const list of [groups.merge, groups.index, workingChanges]) {
+      for (const dir of getCollapsibleChangeDirs(list, props.projectRoot)) {
+        dirs.add(dir);
+      }
+    }
+    return dirs;
+  }, [groups.merge, groups.index, workingChanges, props.projectRoot]);
+
+  const canCollapseChangeDirs = collapsibleChangeDirs.size > 0;
+  const allChangeDirsCollapsed =
+    canCollapseChangeDirs &&
+    [...collapsibleChangeDirs].every((dir) => collapsedChangeDirs.has(dir));
+  const allChangeDirsExpanded =
+    !canCollapseChangeDirs ||
+    [...collapsibleChangeDirs].every((dir) => !collapsedChangeDirs.has(dir));
+
+  const toggleChangeDir = useCallback((dir: string) => {
+    setCollapsedChangeDirs((prev) => {
+      const next = new Set(prev);
+      if (next.has(dir)) next.delete(dir);
+      else next.add(dir);
+      return next;
+    });
+  }, []);
+
+  const collapseAllChangeDirs = useCallback(() => {
+    setCollapsedChangeDirs(new Set(collapsibleChangeDirs));
+  }, [collapsibleChangeDirs]);
+
+  const expandAllChangeDirs = useCallback(() => {
+    setCollapsedChangeDirs(new Set());
+  }, []);
 
   const act = async (operation: () => Promise<void>) => {
     if (mutationRunningRef.current || committing) return;
@@ -1416,6 +1462,27 @@ export function GitPanel(props: GitPanelProps) {
               aria-label={t("common.loading")}
             />
           )}
+          {/* 与文件树一致：收起/展开全部变更目录 */}
+          <button
+            type="button"
+            className="git-action-btn"
+            title={t("drawer.collapseAllDirs")}
+            aria-label={t("drawer.collapseAllDirs")}
+            disabled={!canCollapseChangeDirs || allChangeDirsCollapsed}
+            onClick={collapseAllChangeDirs}
+          >
+            <ChevronsDownUp size={14} />
+          </button>
+          <button
+            type="button"
+            className="git-action-btn"
+            title={t("drawer.expandAllDirs")}
+            aria-label={t("drawer.expandAllDirs")}
+            disabled={!canCollapseChangeDirs || allChangeDirsExpanded}
+            onClick={expandAllChangeDirs}
+          >
+            <ChevronsUpDown size={14} />
+          </button>
           <button
             type="button"
             className="git-action-btn"
@@ -1579,6 +1646,8 @@ export function GitPanel(props: GitPanelProps) {
                     onOpenWorkspaceFileDiff={props.onOpenWorkspaceFileDiff}
                     mutating={mutating || committing}
                     projectRoot={props.projectRoot}
+                    collapsedDirs={collapsedChangeDirs}
+                    onToggleDir={toggleChangeDir}
                   />
                 </ResourceGroup>
               )}
@@ -1606,6 +1675,8 @@ export function GitPanel(props: GitPanelProps) {
                     mutating={mutating || committing}
                     unstageFile={(path) => act(() => props.unstageFiles(props.projectId, [path]))}
                     projectRoot={props.projectRoot}
+                    collapsedDirs={collapsedChangeDirs}
+                    onToggleDir={toggleChangeDir}
                   />
                 </ResourceGroup>
               )}
@@ -1634,6 +1705,8 @@ export function GitPanel(props: GitPanelProps) {
                     stageFile={(path) => act(() => props.stageFiles(props.projectId, [path]))}
                     discardFile={(path, group) => setDiscardTarget({ group, path })}
                     projectRoot={props.projectRoot}
+                    collapsedDirs={collapsedChangeDirs}
+                    onToggleDir={toggleChangeDir}
                   />
                 </ResourceGroup>
               )}

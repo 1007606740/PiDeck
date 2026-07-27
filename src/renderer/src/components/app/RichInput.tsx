@@ -127,6 +127,7 @@ export function parseRichInputChips(
 	}
 
 	// @path：前置排除 : / 和 \w；必须像文件路径（含 /、\\ 或 .），避免普通 @mention 被误渲染成不可编辑 chip。
+	// 白名单规则：项目相对路径需要校验；绝对路径（含盘符或以 / 开头）绕过白名单直接渲染 chip。
 	const atRe = /(?<![:/.\w#!~])(@[^\s@]+)/g;
 	while ((m = atRe.exec(text)) !== null) {
 		const start = m.index;
@@ -136,8 +137,11 @@ export function parseRichInputChips(
 			if (!/[\\/.]/.test(seg)) continue;
 			const normalized = seg.replace(/\\/g, "/");
 			// 路径白名单检查：去掉 ./ 前缀后校验文件是否存在
+			// 绝对路径绕过白名单：Windows 盘符（C:\...）或 Unix 根路径（/... 且至少两级），
+			// 它们来自粘贴/手动引用，不会误触发对话中的 @mention。
 			const pathKey = normalized.startsWith("./") ? normalized.slice(2) : normalized;
-			if (validFilePaths && !validFilePaths.has(pathKey)) continue;
+			const isAbsPath = /^[a-zA-Z]:[\\/]/.test(pathKey) || /^\/[^/]+\//.test(pathKey);
+			if (!isAbsPath && validFilePaths && !validFilePaths.has(pathKey)) continue;
 			const label = normalized.includes("/") ? normalized.slice(normalized.lastIndexOf("/") + 1) : normalized;
 			chips.push({ start, end, raw: m[1], kind: "file", label: label || seg });
 		}

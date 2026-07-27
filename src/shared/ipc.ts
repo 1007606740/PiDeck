@@ -33,6 +33,8 @@ export const ipcChannels = {
 	filesRename: "files:rename",
 	/** 复制来源路径到目标目录（支持文件和目录递归） */
 	filesCopy: "files:copy",
+	/** 读取文件返回 base64 编码的数据 URL，用于图片等二进制文件 */
+	filesReadBase64: "files:read-base64",
 	sessionsList: "sessions:list",
 	sessionsRename: "sessions:rename",
 	sessionsCopy: "sessions:copy",

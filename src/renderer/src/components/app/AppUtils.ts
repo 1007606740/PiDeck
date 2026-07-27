@@ -480,6 +480,7 @@ const HIDDEN_DESKTOP_BUILTIN_COMMAND_NAMES = new Set([
 	"logout",
 	"goal",
 	"tree",
+	"reload",
 ]);
 
 function isBuiltinDesktopCommand(command: PiCommand) {
