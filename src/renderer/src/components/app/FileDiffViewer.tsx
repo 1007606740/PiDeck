@@ -9,17 +9,7 @@ import remarkGfm from "remark-gfm";
 import rehypeKatex from "rehype-katex";
 import { defaultUrlTransform } from "react-markdown";
 
-const BINARY_EXTENSIONS = new Set([
-	"png", "jpg", "jpeg", "gif", "webp", "bmp", "ico",
-	"mp3", "wav", "ogg", "flac", "m4a",
-	"mp4", "avi", "mkv", "mov", "webm",
-	"zip", "tar", "gz", "bz2", "7z", "rar",
-	"exe", "dll", "so", "dylib", "wasm",
-	"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-	"ttf", "otf", "woff", "woff2", "eot",
-	"o", "a", "lib", "obj", "class", "pyc", "pyo",
-	"db", "sqlite", "sqlite3",
-]);
+import { isBinaryExtension } from "../../utils/isTextFile";
 
 let monacoSetupOnce = false;
 function ensureMonaco() {
@@ -106,8 +96,7 @@ export function FileDiffViewer(props: {
 			setDirty(false);
 			try {
 				// 检查文件扩展名是否属于二进制/不可编辑类型
-				const ext = (props.filePath.split(".").pop() ?? "").toLowerCase();
-				if (BINARY_EXTENSIONS.has(ext)) {
+				if (isBinaryExtension(props.filePath)) {
 					setError(t("editor.binaryFileNotSupported", { ext }));
 					setLoading(false);
 					return;

@@ -57,6 +57,7 @@ import { subscribeToNotice, showNotice } from "./utils/notice";
 import { createPreviewApi } from "./previewApi";
 import { createBrowserApi } from "./browserApi";
 const ConfigModal = lazy(() => import("./ConfigModal").then((m) => ({ default: m.ConfigModal })));
+import { isTextFile } from "./utils/isTextFile";
 import { TrustConfirmModal } from "./components/app/TrustConfirmModal";
 import { TerminalDock } from "./components/terminal/TerminalDock";
 import { FeishuLinkIndicator } from "./components/feishu/FeishuLinkIndicator";
@@ -3578,13 +3579,18 @@ export function App() {
   }
 
   function openFilePath(path: string) {
-    // 绝对路径直接打开;相对路径按当前 agent cwd / 项目目录解析后交给系统默认应用。
+    // 绝对路径直接打开;相对路径按当前 agent cwd / 项目目录解析。
     const resolvedPath = resolveFileLinkPath(path, activeAgent?.cwd ?? activeProject?.path);
-    void api.files.open(resolvedPath).catch((error) => {
-      showToast(t("app.openFileFailed", {
-        error: error instanceof Error ? error.message : String(error),
-      }));
-    });
+    // 文本文件→内置编辑器；二进制→系统默认应用。
+    if (isTextFile(resolvedPath)) {
+      viewFilePath(resolvedPath);
+    } else {
+      void api.files.open(resolvedPath).catch((error) => {
+        showToast(t("app.openFileFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      });
+    }
   }
 
   function viewFilePath(path: string) {
