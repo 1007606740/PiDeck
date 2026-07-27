@@ -10,7 +10,6 @@
 ![React](https://img.shields.io/badge/React-19-61dafb)
 ![Version](https://img.shields.io/badge/version-0.6.6-yellow)
 
-## Star History
 
 <!-- star-history:start -->
 <picture>
