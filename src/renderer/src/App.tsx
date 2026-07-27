@@ -124,6 +124,7 @@ import {
   ConfirmDialog,
   ImagePreviewModal,
   BrandLockup,
+  AgentStatusIndicator,
   LogoMark,
   ModelPicker,
   PromptTemplatePicker,
@@ -6711,11 +6712,7 @@ export function App() {
                           <span className="agent-node-marker" aria-hidden="true" />
                           <div className="conversation-body">
                             <div className="conversation-title">
-                              {agent.status && (
-                                <span className={`agent-status-indicator status-${agent.status}`}>
-                                  {t(`app.status${agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}` as any) || agent.status}
-                                </span>
-                              )}
+                              {agent.status && <AgentStatusIndicator status={agent.status} />}
                               <strong>{agent.title}</strong>
                               {child.source && child.source !== "pi" && (
                                 <span className={`session-source-badge ${child.source}`}>
@@ -6965,7 +6962,7 @@ export function App() {
                                   <span className="agent-node-marker" aria-hidden="true" />
                                   <div className="conversation-body">
                                     <div className="conversation-title">
-                                      {agent.status && (<span className={`agent-status-indicator status-${agent.status}`}>{t(`app.status${agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}` as any) || agent.status}</span>)}
+                                      {agent.status && <AgentStatusIndicator status={agent.status} />}
                                       <strong>{agent.title}</strong>
                                       {agent.noSession && (
                                         <span

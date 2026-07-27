@@ -57,6 +57,7 @@ function loadMermaid() {
 	return mermaidModulePromise;
 }
 import {
+	Activity,
 	AlertTriangle,
 	Brush,
 	Check,
@@ -65,6 +66,10 @@ import {
 	ChevronRight,
 	ChevronsUpDown,
 	ChevronUp,
+	Circle,
+	CircleAlert,
+	CircleOff,
+	Loader2,
 	MoveDown,
 	MoveUp,
 	ChevronsDownUp,
@@ -1543,6 +1548,45 @@ function formatCompact(value?: number | null) {
 const PI_LOGO_PATH_MAIN =
 	"M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z";
 const PI_LOGO_PATH_CORNER = "M517.36 400H634.72V634.72H517.36Z";
+
+/**
+ * 侧栏 Agent 状态：纯图标替代长文字（空闲/运行中…），title 保留完整文案。
+ * idle=Circle 静默可用；starting=Loader2 旋转；running=Activity 活跃；
+ * error=CircleAlert；closed=CircleOff。
+ */
+export function AgentStatusIndicator(props: { status: string }) {
+	const statusKey = `app.status${props.status.charAt(0).toUpperCase()}${props.status.slice(1)}` as TranslationKey;
+	const label = t(statusKey) || props.status;
+	const iconProps = { size: 12, strokeWidth: 2, "aria-hidden": true as const };
+	let icon: ReactNode;
+	switch (props.status) {
+		case "running":
+			icon = <Activity {...iconProps} />;
+			break;
+		case "starting":
+			icon = <Loader2 {...iconProps} className="agent-status-spin" />;
+			break;
+		case "error":
+			icon = <CircleAlert {...iconProps} />;
+			break;
+		case "closed":
+			icon = <CircleOff {...iconProps} />;
+			break;
+		case "idle":
+		default:
+			icon = <Circle {...iconProps} />;
+			break;
+	}
+	return (
+		<span
+			className={`agent-status-indicator status-${props.status}`}
+			title={label}
+			aria-label={label}
+		>
+			{icon}
+		</span>
+	);
+}
 
 export function LogoMark() {
 	return (

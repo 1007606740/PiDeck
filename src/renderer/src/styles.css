@@ -808,9 +808,9 @@ select:focus-visible {
   color: var(--color-text-primary);
 }
 .env-mirror-btn.active {
-  border-color: var(--color-accent);
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
+  border-color: var(--color-border-strong);
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
 }
 
 .env-install-progress {
@@ -1516,7 +1516,8 @@ body.is-resizing .wechat-shell {
   bottom: 5px;
   width: 3px;
   border-radius: var(--radius-md);
-  background: var(--color-accent);
+  /* 选中条用中性色，避免侧栏大面积「操作绿」 */
+  background: color-mix(in srgb, var(--color-text-primary) 28%, var(--color-border-strong));
 }
 .conversation-avatar {
   width: 24px;
@@ -1541,20 +1542,20 @@ body.is-resizing .wechat-shell {
 .project-group > .conversation.active:first-child .project-avatar {
   background: color-mix(
     in srgb,
-    var(--color-accent-soft) 78%,
+    var(--color-bg-hover) 78%,
     var(--color-bg-panel)
   );
-  color: var(--color-accent);
+  color: var(--color-text-primary);
 }
 /* 聊天头像始终无底，避免 active 状态又补回背景 */
 .project-group > .conversation.active:first-child .project-avatar.chat-avatar {
   background: transparent;
 }
 .chat-project .project-avatar {
-  color: var(--color-accent);
+  color: var(--color-text-secondary);
 }
 .project-avatar.chat-avatar {
-  color: var(--color-accent);
+  color: var(--color-text-secondary);
   /* 聊天项目头像只保留图标，去掉底色容器 */
   background: transparent;
 }
@@ -1647,7 +1648,7 @@ body.is-resizing .wechat-shell {
 .project-group.chat-project-group > .conversation.active:first-child {
   background: color-mix(
     in srgb,
-    var(--color-accent-soft) 52%,
+    var(--color-bg-active) 72%,
     var(--color-bg-muted)
   );
 }
@@ -1667,7 +1668,7 @@ body.is-resizing .wechat-shell {
   > .conversation.active:first-child {
   background: color-mix(
     in srgb,
-    var(--color-accent-soft) 66%,
+    var(--color-bg-active) 80%,
     var(--color-bg-panel)
   );
 }
@@ -1690,21 +1691,21 @@ body.is-resizing .wechat-shell {
   50% { opacity: 0.65; }
 }
 .project-group > .conversation:first-child:active:not(.dragging) {
-  background: color-mix(in srgb, var(--color-bg-hover) 70%, var(--color-accent-soft));
+  background: var(--color-bg-hover);
   transform: scale(0.985);
   transition-duration: 0.05s;
 }
 
-/* 项目点击涟漪 — 视觉脉冲反馈 */
+/* 项目点击涟漪 — 中性脉冲，不用操作绿 */
 @keyframes project-click-flash {
   0% {
-    box-shadow: inset 0 0 0 0 rgba(35, 134, 54, 0);
+    box-shadow: inset 0 0 0 0 color-mix(in srgb, var(--color-text-primary) 0%, transparent);
   }
   20% {
-    box-shadow: inset 0 0 0 2px rgba(35, 134, 54, 0.2);
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-text-primary) 12%, transparent);
   }
   100% {
-    box-shadow: inset 0 0 0 0 rgba(35, 134, 54, 0);
+    box-shadow: inset 0 0 0 0 color-mix(in srgb, var(--color-text-primary) 0%, transparent);
   }
 }
 .project-group > .conversation:first-child.click-animating {
@@ -1725,10 +1726,10 @@ body.is-resizing .wechat-shell {
   );
 }
 .project-group > .conversation.active:first-child {
-  /* 项目行作为树根节点，active 只做轻量提示；避免整行大面积绿色抢走会话内容注意力。 */
-  background: color-mix(in srgb, var(--color-accent-soft) 62%, transparent);
+  /* 项目行 active：中性浅底 + 细描边，不再铺绿色。 */
+  background: var(--color-bg-active);
   box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--color-accent) 12%, transparent);
+    color-mix(in srgb, var(--color-border-strong) 70%, transparent);
 }
 .project-group > .conversation.project-draggable:first-child {
   cursor: grab;
@@ -1740,9 +1741,9 @@ body.is-resizing .wechat-shell {
   opacity: 0.58;
 }
 .project-group > .conversation.drag-over:first-child {
-  background: var(--color-accent-soft);
+  background: var(--color-bg-hover);
   box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--color-accent) 32%, transparent);
+    color-mix(in srgb, var(--color-border-strong) 80%, transparent);
 }
 .chat-project-guide {
   margin-top: 2px;
@@ -2165,7 +2166,7 @@ body.is-resizing .wechat-shell {
 }
 .worktree-create-btn:hover {
   border-color: color-mix(in srgb, var(--color-accent) 32%, var(--color-border));
-  background: color-mix(in srgb, var(--color-accent-soft) 48%, var(--color-bg-panel));
+  background: var(--color-bg-hover);
   color: var(--color-accent);
 }
 .worktree-create-btn:focus-visible {
@@ -2379,9 +2380,13 @@ body.is-resizing .wechat-shell {
   font-weight: 500;
 }
 .agent-row.active {
-  background: color-mix(in srgb, var(--color-accent-soft) 46%, transparent);
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--color-accent) 10%, transparent);
+  background: var(--color-bg-active);
+  box-shadow: none;
+}
+/* agent/会话行不显示左侧选中条，只保留浅底 */
+.agent-row.active::before,
+.session-row.active::before {
+  display: none;
 }
 .agent-row.active .conversation-title strong {
   color: var(--color-text-primary);
@@ -2439,9 +2444,8 @@ body.is-resizing .wechat-shell {
   background: var(--color-bg-hover);
 }
 .session-row.active {
-  background: color-mix(in srgb, var(--color-accent-soft) 46%, transparent);
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--color-accent) 10%, transparent);
+  background: var(--color-bg-active);
+  box-shadow: none;
 }
 .session-row .conversation-title {
   display: flex;
@@ -2795,8 +2799,8 @@ body.is-terminal-resizing {
   height: 16px;
   margin-left: 4px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
-  color: var(--color-accent-soft);
+  background: color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+  color: var(--color-text-tertiary);
 }
 
 /* ── 压缩卡片（可展开查看归档消息） ── */
@@ -3561,7 +3565,7 @@ body.is-terminal-resizing {
   font-weight: 500;
 }
 .branch-create-trigger:hover {
-  background: var(--color-accent-soft) !important;
+  background: var(--color-bg-hover) !important;
 }
 .branch-create-form {
   display: flex;
@@ -5234,7 +5238,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   border: 1px solid
     color-mix(in srgb, var(--color-accent) 24%, var(--color-border-subtle));
   border-radius: var(--radius-md);
-  background: var(--color-accent-soft);
+  background: var(--color-bg-muted);
   color: var(--color-accent);
   font-family: var(--font-family-business);
   font-size: var(--font-size-micro);
@@ -7296,15 +7300,16 @@ body.is-composer-resizing .composer-resize-handle::after {
   cursor: default;
 }
 
+/* 会话引用 chip：用 info 蓝区分，避免再叠一层品牌绿 */
 .composer .input-chip--session,
 .user-turn-text .input-chip--session {
-  background: color-mix(in srgb, var(--color-brand-green) 14%, transparent);
-  color: var(--color-brand-green);
-  border: 1px solid color-mix(in srgb, var(--color-brand-green) 28%, transparent);
+  background: color-mix(in srgb, var(--color-info) 12%, transparent);
+  color: var(--color-info);
+  border: 1px solid color-mix(in srgb, var(--color-info) 26%, transparent);
   cursor: pointer;
 }
 .composer .input-chip--session:hover {
-  background: color-mix(in srgb, var(--color-brand-green) 24%, transparent);
+  background: color-mix(in srgb, var(--color-info) 20%, transparent);
 }
 
 .session-ref-modal { width: min(700px, calc(100vw - 48px)); max-height: min(650px, calc(100vh - 48px)); }
@@ -7340,15 +7345,16 @@ body.is-composer-resizing .composer-resize-handle::after {
   background: color-mix(in srgb, var(--color-danger) 7%, var(--color-bg-muted));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 8%, transparent);
 }
+/* Plan 模式用 brand-blue，与品牌绿/操作绿脱钩 */
 .composer-box.plan-mode {
   border-color: color-mix(
     in srgb,
-    var(--color-brand-green) 34%,
+    var(--color-brand-blue) 34%,
     var(--color-border-subtle)
   );
   background: #ffffff;
   box-shadow: 0 0 0 3px
-    color-mix(in srgb, var(--color-brand-green) 7%, transparent);
+    color-mix(in srgb, var(--color-brand-blue) 7%, transparent);
 }
 .composer-box.shell-mode:focus-within {
   border-color: var(--color-warning);
@@ -7360,9 +7366,9 @@ body.is-composer-resizing .composer-resize-handle::after {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 15%, transparent);
 }
 .composer-box.plan-mode:focus-within {
-  border-color: var(--color-brand-green);
+  border-color: var(--color-brand-blue);
   box-shadow: 0 0 0 3px
-    color-mix(in srgb, var(--color-brand-green) 14%, transparent);
+    color-mix(in srgb, var(--color-brand-blue) 14%, transparent);
 }
 .composer-box.shell-mode::before,
 .composer-box.shell-silent-mode::before,
@@ -7376,7 +7382,7 @@ body.is-composer-resizing .composer-resize-handle::after {
   background: var(--color-danger);
 }
 .composer-box.plan-mode::before {
-  background: var(--color-brand-green);
+  background: var(--color-brand-blue);
 }
 .composer-box.shell-mode textarea,
 .composer-box.shell-silent-mode textarea {
@@ -7389,7 +7395,7 @@ body.is-composer-resizing .composer-resize-handle::after {
   border-top-color: color-mix(in srgb, var(--color-danger) 20%, transparent);
 }
 .composer-box.plan-mode .composer-bottom-bar {
-  border-top-color: color-mix(in srgb, var(--color-brand-green) 20%, transparent);
+  border-top-color: color-mix(in srgb, var(--color-brand-blue) 20%, transparent);
 }
 .extension-widgets-container {
   display: flex;
@@ -7556,9 +7562,11 @@ body.is-composer-resizing .composer-resize-handle::after {
   border: none;
   border-radius: var(--radius-md);
   background: transparent;
-  color: var(--color-text-tertiary);
+  /* 底栏控件默认用正文色，避免 tertiary 灰到看不清 */
+  color: var(--color-text-primary);
   font-size: var(--font-size-caption);
   font-family: var(--font-family-base);
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.12s ease;
   white-space: nowrap;
@@ -7591,6 +7599,10 @@ body.is-composer-resizing .composer-resize-handle::after {
   justify-content: center;
 }
 .composer-bar-btn.stop {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  justify-content: center;
   color: var(--color-danger);
   background: color-mix(in srgb, var(--color-danger) 8%, transparent);
 }
@@ -7615,14 +7627,36 @@ body.is-composer-resizing .composer-resize-handle::after {
   background: var(--color-border-subtle);
   color: var(--color-text-tertiary);
 }
+/* 模型/思考：斜体 + secondary 色，避免大片黑色压迫 */
 .composer-bar-btn.model,
 .composer-bar-btn.thinking {
-  font-size: var(--font-size-micro);
-  font-family: var(--font-family-business);
-  padding: 0 6px;
-  height: 22px;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-control);
+  font-family: var(--font-family-base);
+  font-style: italic;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  max-width: min(280px, 36vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-/* 分支只读展示：右侧纯文本，无背景/边框/阴影，不抢发送按钮焦点。 */
+.composer-bar-btn.model:hover,
+.composer-bar-btn.thinking:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+/* 思考级别用 accent 色做区分点缀 */
+.composer-bar-btn.thinking {
+  color: color-mix(in srgb, var(--color-accent) 75%, var(--color-text-secondary));
+}
+.composer-bar-btn.thinking:hover {
+  color: var(--color-accent);
+}
+/* 分支只读展示：secondary 色而非 tertiary，避免灰色看不见 */
 .composer-bar-branch {
   display: inline-flex;
   align-items: center;
@@ -7634,7 +7668,7 @@ body.is-composer-resizing .composer-resize-handle::after {
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   font-size: var(--font-size-micro);
   font-family: var(--font-family-business);
   cursor: default;
@@ -7646,13 +7680,9 @@ body.is-composer-resizing .composer-resize-handle::after {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  font-weight: 600;
 }
-.composer-bar-btn.thinking {
-  color: var(--color-accent);
-}
-.composer-bar-btn.thinking:hover {
-  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
-}
+
 .composer-bar-model-info {
   font-size: var(--font-size-micro);
   font-family: var(--font-family-business);
@@ -7863,7 +7893,7 @@ body.is-composer-resizing .composer-resize-handle::after {
   background: var(--color-bg-active);
 }
 .command-palette-item.selected {
-  background: var(--color-accent-soft);
+  background: var(--color-bg-active);
 }
 .command-palette-label {
   flex: 0 0 auto;
@@ -8368,8 +8398,8 @@ body.is-composer-resizing .composer-resize-handle::after {
   min-width: 0;
 }
 .skill-rename-inline input:focus {
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px var(--color-accent-soft);
+  border-color: var(--color-border-strong);
+  box-shadow: var(--focus-ring);
 }
 
 .session-rename-row {
@@ -9099,8 +9129,8 @@ body.is-composer-resizing .composer-resize-handle::after {
   color: var(--color-text-secondary);
 }
 .codex-status.new {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-info) 12%, var(--color-bg-panel));
+  color: var(--color-info);
 }
 .codex-status.outdated {
   background: color-mix(
@@ -9304,7 +9334,7 @@ body.is-composer-resizing .composer-resize-handle::after {
   margin-bottom: 4px;
 }
 .outline-expand:hover {
-  background: var(--color-accent-soft);
+  background: var(--color-bg-hover);
 }
 .conversation-outline button {
   width: 100%;
@@ -10009,75 +10039,55 @@ body.is-composer-resizing .composer-resize-handle::after {
   }
 }
 
-/* 项目列表中的状态指示器 */
+/* 项目列表 Agent 状态：纯图标，去掉长文字徽章，避免挤占标题 */
 .agent-status-indicator {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: var(--space-5);
-  padding: 0 var(--space-1);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-xs);
-  font-family: var(--font-family-business);
-  font-size: var(--font-size-micro);
-  line-height: var(--line-height-micro);
-  font-weight: 600;
-  white-space: nowrap;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
   flex-shrink: 0;
+  line-height: 0;
+}
+
+.agent-status-indicator svg {
+  display: block;
+}
+
+/* starting 的 Loader2 持续旋转 */
+.agent-status-spin {
+  animation: agent-status-spin 0.9s linear infinite;
+}
+
+@keyframes agent-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .agent-status-indicator.status-running {
   color: var(--color-accent);
-  background: color-mix(
-    in srgb,
-    var(--color-accent) 12%,
-    var(--color-bg-panel)
-  );
-  border-color: color-mix(
-    in srgb,
-    var(--color-accent) 32%,
-    var(--color-border-subtle)
-  );
-  animation: pulse-indicator 2s ease-in-out infinite;
 }
 
 .agent-status-indicator.status-idle {
-  color: var(--color-info);
-  background: color-mix(in srgb, var(--color-info) 10%, var(--color-bg-panel));
-  border-color: color-mix(
-    in srgb,
-    var(--color-info) 28%,
-    var(--color-border-subtle)
-  );
+  color: var(--color-text-tertiary);
 }
 
 .agent-status-indicator.status-starting {
   color: var(--color-warning);
-  background: color-mix(
-    in srgb,
-    var(--color-warning) 12%,
-    var(--color-bg-panel)
-  );
-  border-color: color-mix(
-    in srgb,
-    var(--color-warning) 32%,
-    var(--color-border-subtle)
-  );
-  animation: pulse-indicator 2s ease-in-out infinite;
 }
 
 .agent-status-indicator.status-error {
   color: var(--color-danger);
-  background: color-mix(
-    in srgb,
-    var(--color-danger) 10%,
-    var(--color-bg-panel)
-  );
-  border-color: color-mix(
-    in srgb,
-    var(--color-danger) 30%,
-    var(--color-border-subtle)
-  );
+}
+
+.agent-status-indicator.status-closed {
+  color: var(--color-text-tertiary);
+  opacity: 0.7;
 }
 
 @keyframes pulse-indicator {
@@ -10372,7 +10382,7 @@ body.is-composer-resizing .composer-resize-handle::after {
   background: var(--color-bg-active);
 }
 .picker-palette-item.selected {
-  background: var(--color-accent-soft);
+  background: var(--color-bg-active);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 36%, transparent),
     0 4px 14px color-mix(in srgb, var(--color-accent) 18%, transparent);
@@ -11764,8 +11774,8 @@ body.is-composer-resizing .composer-resize-handle::after {
   color: var(--color-accent);
 }
 .skillhub-card-action-btn.primary:hover {
-  background: var(--color-accent-soft);
-  border-color: var(--color-accent);
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
 }
 .skillhub-installing-dot {
   display: inline-block;
@@ -11868,8 +11878,8 @@ body.is-composer-resizing .composer-resize-handle::after {
 .skillhub-detail-badge {
   padding: 0 6px;
   border-radius: var(--radius-sm);
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
   font-size: var(--font-size-caption);
 }
 .skillhub-detail-stats {
@@ -12383,8 +12393,8 @@ a.config-btn {
 .config-provider-badge {
   font-family: var(--font-family-business);
   font-size: var(--font-size-micro);
-  color: var(--color-accent);
-  background: var(--color-accent-soft);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-muted);
   padding: 2px 8px;
   border-radius: var(--radius-md);
   font-weight: 500;
@@ -15344,8 +15354,8 @@ a.config-btn {
   font-variant-numeric: tabular-nums;
 }
 .skill-state.enabled {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
 }
 .skill-state.disabled {
   background: var(--color-bg-muted);
@@ -15593,7 +15603,7 @@ a.config-btn {
 }
 
 .file-diff-toggle-btn:hover {
-  background: var(--color-accent-soft);
+  background: var(--color-bg-hover);
   color: var(--color-accent);
 }
 
@@ -16187,7 +16197,7 @@ a.config-btn {
   position: relative;
 }
 
-/* 与 composer-bar-btn 对齐：透明底、弱色文字，仅 hover 时轻微高亮 */
+/* 与 composer-bar-btn 对齐：透明底；文字用 secondary，比 tertiary 更易读 */
 .feishu-link-trigger {
   display: inline-flex;
   align-items: center;
@@ -16196,10 +16206,11 @@ a.config-btn {
   border: 0;
   border-radius: var(--radius-xs);
   background: transparent;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   padding: 0 8px;
   font-size: var(--font-size-caption);
   font-family: var(--font-family-base);
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
   max-width: 160px;
@@ -16220,25 +16231,32 @@ a.config-btn {
   background: var(--color-bg-active);
 }
 
-.feishu-link-dot {
+/* 飞书 Logo 不缩放，保持官方三色；connected 时完全显色，disconnected 降低透明度 */
+.feishu-link-logo {
   flex: 0 0 auto;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-text-tertiary);
+  display: inline-flex;
+  align-items: center;
+  width: 14px;
+  height: 14px;
+  line-height: 0;
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
 }
-.feishu-link-dot.connected {
-  background: var(--color-accent);
+.feishu-link-logo.connected {
+  opacity: 1;
 }
-.feishu-link-dot.connecting {
-  background: var(--color-warning);
+.feishu-link-logo.connecting {
+  opacity: 0.7;
   animation: feishu-pulse 1.3s ease-in-out infinite;
 }
-.feishu-link-dot.disconnected {
-  background: var(--color-text-tertiary);
+.feishu-link-logo.disconnected {
+  opacity: 0.4;
 }
-.feishu-link-dot.error {
-  background: var(--color-danger);
+.feishu-link-logo.error {
+  opacity: 0.5;
+}
+.feishu-link-logo svg {
+  display: block;
 }
 
 .feishu-link-label {
@@ -16622,9 +16640,9 @@ a.config-btn {
 /* 添加 Bot 时连接成功后的 Open ID 区域 */
 .config-im-openid-section {
   padding: var(--space-2);
-  border: 1px solid var(--color-accent);
+  border: 1px solid var(--color-border-default);
   border-radius: var(--radius-md);
-  background: var(--color-accent-soft);
+  background: var(--color-bg-muted);
 }
 .config-im-openid-hint {
   font-size: var(--font-size-micro);
@@ -16635,8 +16653,8 @@ a.config-btn {
 .config-im-connected-info {
   padding: 8px 12px;
   border-radius: var(--radius-sm);
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
   font-size: var(--font-size-caption);
   font-weight: 500;
   white-space: nowrap;
@@ -18210,7 +18228,7 @@ a.config-btn {
 .prompt-store-suggestion-chip:hover {
   border-color: var(--color-accent);
   color: var(--color-accent);
-  background: var(--color-accent-soft);
+  background: var(--color-bg-hover);
 }
 
 .prompt-store-results {
@@ -18344,8 +18362,8 @@ a.config-btn {
 .prompt-store-tag {
   padding: 2px 8px;
   border-radius: var(--radius-full);
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
   font-size: var(--font-size-caption);
 }
 .prompt-store-description {
@@ -18408,7 +18426,7 @@ a.config-btn {
 .yao-category-chip.active {
   border-color: var(--color-accent);
   color: var(--color-accent);
-  background: var(--color-accent-soft);
+  background: var(--color-bg-active);
 }
 .yao-category-chip small {
   color: var(--color-text-tertiary);
@@ -19046,9 +19064,9 @@ html[data-theme="dark"] .scratch-pad-md mark {
 }
 
 .chat-list-pane.v3-braun .sidebar-body .round-add:hover {
-  background: var(--color-accent-soft);
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
 }
 
 .chat-list-pane.v3-braun .sidebar-body .conversation-list {
@@ -19131,7 +19149,7 @@ html[data-theme="dark"] .scratch-pad-md mark {
   .sidebar-body
   .project-group.chat-project-group
   > .conversation:first-child.active {
-  background: var(--color-accent-soft);
+  background: var(--color-bg-active);
 }
 
 .chat-list-pane.v3-braun
@@ -19155,9 +19173,9 @@ html[data-theme="dark"] .scratch-pad-md mark {
   .sidebar-body
   .project-group
   > .conversation:first-child.active {
-  background: var(--color-accent-soft);
+  background: var(--color-bg-active);
   box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--color-accent) 12%, transparent);
+    color-mix(in srgb, var(--color-border-strong) 55%, transparent);
 }
 
 .chat-list-pane.v3-braun
@@ -19185,7 +19203,7 @@ html[data-theme="dark"] .scratch-pad-md mark {
   min-height: var(--control-height-md);
   margin: 2px 0;
   padding: var(--space-1) var(--space-2);
-  border-left: 2px solid transparent;
+  border-left: none;
   border-radius: var(--radius-sm);
   background: var(--color-bg-panel);
 }
@@ -19224,7 +19242,8 @@ html[data-theme="dark"] .scratch-pad-md mark {
 .chat-list-pane.v3-braun .sidebar-body .session-row.active {
   background: var(--color-bg-hover);
   box-shadow: none;
-  border-left-color: color-mix(in srgb, var(--color-border) 70%, transparent);
+  border-left: none;
+  border-left-color: transparent;
 }
 
 /* 工作区选中：中性底，不用 accent 绿色块 */
