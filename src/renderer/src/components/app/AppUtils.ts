@@ -415,6 +415,15 @@ export function detectTrigger(
 		if (prev === "=" || prev === "?") return null;
 		return { start, char, query: segment };
 	}
+	if (char === "/") {
+		// 检查 / 是否属于 @file 路径（@ 在前且无空格），是则当作 @ 触发而非命令
+		const beforeSlash = before.slice(0, start);
+		const atBefore = beforeSlash.lastIndexOf("@");
+		if (atBefore >= 0 && !/\s/.test(beforeSlash.slice(atBefore))) {
+			const fileSegment = before.slice(atBefore + 1);
+			return { start: atBefore, char: "@", query: fileSegment };
+		}
+	}
 	if (/[\s@/&]/.test(segment)) return null;
 	const prevChar = start > 0 ? before[start - 1] : "";
 	if (prevChar) {
@@ -452,6 +461,10 @@ export type SuggestionItem = {
 	label: string;
 	description: string;
 	value: string;
+	/** 不可选中的目录分组头/树目录节点，用于 @ 无关键词时展示项目结构 */
+	disabled?: boolean;
+	/** 树形缩进层级（0=根目录），仅在 @ 无关键词时使用 */
+	treeDepth?: number;
 	sessionMeta?: { sessionId: string; filePath: string; projectPath?: string };
 };
 
@@ -522,6 +535,60 @@ function fuzzyScore(value: string, keyword: string) {
 	return score;
 }
 
+/**
+ * 从扁平文件列表构建目录树扁平列表（带 treeDepth 缩进层级）。
+ * 每个目录节点渲染为不可选中的 header，文件节点可选。
+ */
+function buildFileTreeItems(files: FileTreeNode[]): SuggestionItem[] {
+	interface PathNode {
+		name: string;
+		children: Map<string, PathNode>;
+		files: FileTreeNode[];
+	}
+	// 用 / 分隔符构建路径树
+	const root: PathNode = { name: "", children: new Map(), files: [] };
+	for (const file of files) {
+		const parts = file.relativePath.replace(/\\/g, "/").split("/");
+		const fileName = parts.pop()!;
+		let node = root;
+		for (const part of parts) {
+			if (!node.children.has(part)) {
+				node.children.set(part, { name: part, children: new Map(), files: [] });
+			}
+			node = node.children.get(part)!;
+		}
+		node.files.push(file);
+	}
+	// 仅展平第一层（根目录文件 + 一级目录），避免大项目卡顿
+	const result: SuggestionItem[] = [];
+	function flatten(node: PathNode, depth: number, maxDepth: number) {
+		const sortedDirs = [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name));
+		const sortedFiles = [...node.files].sort((a, b) => a.name.localeCompare(b.name));
+		for (const dir of sortedDirs) {
+			result.push({
+				key: `dir:${depth}:${dir.name}`,
+				label: dir.name,
+				description: "",
+				value: "",
+				disabled: true,
+				treeDepth: depth,
+			});
+			if (depth < maxDepth) flatten(dir, depth + 1, maxDepth);
+		}
+		for (const file of sortedFiles) {
+			result.push({
+				key: file.path,
+				label: `@${file.name}`,
+				description: file.relativePath,
+				value: `@${file.relativePath}`,
+				treeDepth: depth,
+			});
+		}
+	}
+	flatten(root, 0, 0); // 只展开第一层
+	return result;
+}
+
 export function buildSuggestionItems(
 	prompt: string,
 	cursor: number,
@@ -551,6 +618,11 @@ export function buildSuggestionItems(
 			}));
 	}
 	if (trigger.char === "@") {
+		if (!keyword) {
+			// 无关键词：展示完整目录树（扁平递归展开，带缩进层级）
+			return buildFileTreeItems(files);
+		}
+		// 有关键词：模糊搜索
 		return files
 			.map((file) => ({
 				file,
@@ -558,9 +630,9 @@ export function buildSuggestionItems(
 					fuzzyScore(file.relativePath, keyword) +
 					fuzzyScore(file.name, keyword) * 2,
 			}))
-			.filter((item) => item.score > 0 || !keyword)
+			.filter((item) => item.score > 0)
 			.sort((a, b) => b.score - a.score)
-			.slice(0, 8)
+			.slice(0, 15)
 			.map((item) => ({
 				key: item.file.path,
 				label: `@${item.file.name}`,

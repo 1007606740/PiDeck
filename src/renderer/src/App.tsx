@@ -2947,6 +2947,7 @@ export function App() {
   }, [activeAgentId]);
 
   useEffect(() => {
+    // 默认选中第一项（目录树根级目录），便于浏览项目结构
     setSelectedSuggestionIndex(0);
   }, [suggestionItems.length]);
 
@@ -4891,14 +4892,14 @@ export function App() {
     if (suggestionsOpen && suggestionItems.length > 0) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
-        setSelectedSuggestionIndex((index) =>
-          Math.min(index + 1, suggestionItems.length - 1),
+        setSelectedSuggestionIndex((prev) =>
+          Math.min(prev + 1, suggestionItems.length - 1),
         );
         return;
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        setSelectedSuggestionIndex((index) => Math.max(index - 1, 0));
+        setSelectedSuggestionIndex((prev) => Math.max(prev - 1, 0));
         return;
       }
       if (event.key === "Enter") {
@@ -4909,6 +4910,7 @@ export function App() {
           suggestionItems[
             Math.min(selectedSuggestionIndex, suggestionItems.length - 1)
           ];
+        if (selected?.disabled) return;
         if (selected) {
           // 以光标为锚替换触发符..光标这一段,并在下一帧恢复光标到插入项之后。
           const el = event.currentTarget;

@@ -5523,17 +5523,35 @@ export function PromptSuggestions(props: {
 				</IconButton>
 			</div>
 			<div className="command-palette-list" ref={listRef}>
-				{props.items.map((item, index) => (
+				{props.items.map((item, index) => {
+				const indent = item.treeDepth != null ? `${item.treeDepth * 20}px` : "0px";
+				if (item.disabled) {
+					// 目录树节点：缩进 + 文件夹图标，选中时加高亮背景
+					return (
+						<div
+							key={item.key}
+							className={`command-palette-tree-dir${index === props.selectedIndex ? " selected" : ""}`}
+							style={{ paddingLeft: `calc(12px + ${indent})` }}
+							onMouseEnter={() => props.onSelectedIndexChange(index)}
+						>
+							<Folder size={12} aria-hidden="true" />
+							<span>{item.label}</span>
+						</div>
+					);
+				}
+				return (
 					<button
 						key={item.key}
 						className={`command-palette-item${index === props.selectedIndex ? " selected" : ""}`}
+						style={{ paddingLeft: `calc(12px + ${indent})` }}
 						onMouseEnter={() => props.onSelectedIndexChange(index)}
 						onClick={() => props.onPick(item.value)}
 					>
 						<span className="command-palette-label">{item.label}</span>
 						<span className="command-palette-desc">{item.description}</span>
 					</button>
-				))}
+				);
+			})}
 			</div>
 			<div className="command-palette-footer">
 				<span>{t("prompt.selectHint")}</span>
