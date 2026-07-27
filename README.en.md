@@ -12,7 +12,7 @@
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/chart?repos=ayuayue/PiDeck&type=date&legend=top-left&sealed_token=3OSfgPrOsa1WDfOPzHlgAQwVtZWnssk5g44PKx4iUj7pYdk_9HML-LgbzVp3aMM-7hueHrt44qfwWzyMk2hYoxsGpX4n0tC9XpoB_LRYpniN-hw9VDynUQ)](https://www.star-history.com/?repos=ayuayue%2FPiDeck&type=date&legend=top-left)
+[![Star History](https://img.shields.io/badge/Star%20History-%E2%AD%90-gold)](https://www.star-history.com/#ayuayue/PiDeck&Date)
 
 ---
 
