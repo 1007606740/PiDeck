@@ -53,7 +53,7 @@ import {
   PanelLeft,
   PanelRight,
 } from "lucide-react";
-import { subscribeToNotice, showNotice } from "./utils/notice";
+import { showNotice } from "./utils/notice";
 import { createPreviewApi } from "./previewApi";
 import { createBrowserApi } from "./browserApi";
 const ConfigModal = lazy(() => import("./ConfigModal").then((m) => ({ default: m.ConfigModal })));
@@ -64,6 +64,7 @@ import { FeishuLinkIndicator } from "./components/feishu/FeishuLinkIndicator";
 import { useFeishuBridge } from "./hooks/useFeishuBridge";
 import { CloseIconButton } from "./components/ui/IconButton";
 import { writeClipboard } from "./utils/clipboard";
+import { Toaster } from "./components/ui/sonner";
 import { THINKING_LEVELS } from "./components/app/AppParts";
 import {
   buildComposerPromptSubmission,
@@ -623,12 +624,6 @@ export function App() {
     string | undefined
   >(undefined);
   const [sessionActionsOpen, setSessionActionsOpen] = useState(false);
-  const [appNotice, setAppNotice] = useState<{
-    message: string;
-    duration: number;
-    kind?: "info" | "error" | "warning";
-  } | null>(null);
-  const appNoticeTimeoutRef = useRef<number | null>(null);
   const [switchingBranch, setSwitchingBranch] = useState<string | null>(null);
   const [promptByAgent, setPromptByAgent] = useState<Record<string, string>>(
     {},
@@ -675,25 +670,6 @@ export function App() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [editorsOpen]);
-  // 订阅 app-notice 通知：替代 sonner toast
-  useEffect(() => {
-    return subscribeToNotice((data) => {
-      if (data) {
-        setAppNotice({
-          message: data.message,
-          duration: data.duration,
-          kind: data.kind,
-        });
-        if (appNoticeTimeoutRef.current) {
-          window.clearTimeout(appNoticeTimeoutRef.current);
-        }
-        appNoticeTimeoutRef.current = window.setTimeout(() => {
-          setAppNotice(null);
-          appNoticeTimeoutRef.current = null;
-        }, data.duration);
-      }
-    });
-  }, []);
 
   /** 活跃的 Extension UI 请求 map（requestId → UiRequest），用于实时显示 ask_question 卡片 */
   const [activeUiRequest, setActiveUiRequest] = useState<Record<string, UiRequest> | null>(null);
@@ -3368,7 +3344,7 @@ export function App() {
     }
   }
 
-  /** 统一通知：所有非模态消息都走 app-notice 位置 */
+  /** 统一通知：使用 sonner toast 展示非模态消息 */
   function showToast(message: string, duration = 3500) {
     showNotice(message, duration);
   }
@@ -7295,57 +7271,6 @@ export function App() {
                         </span>
                       )}
                     </button>
-                    {appNotice && (
-                      <div
-                        className={
-                          appNotice.kind === "error"
-                            ? "app-notice app-notice-error"
-                            : appNotice.kind === "warning"
-                              ? "app-notice app-notice-warning"
-                              : "app-notice"
-                        }
-                        role={appNotice.kind === "error" ? "alert" : "status"}
-                        // 允许选中复制；错误类消息额外提供一键复制，避免长报错只能眼看
-                        onMouseEnter={() => {
-                          if (appNoticeTimeoutRef.current) {
-                            window.clearTimeout(appNoticeTimeoutRef.current);
-                            appNoticeTimeoutRef.current = null;
-                          }
-                        }}
-                        onMouseLeave={() => {
-                          if (!appNotice) return;
-                          if (appNoticeTimeoutRef.current) {
-                            window.clearTimeout(appNoticeTimeoutRef.current);
-                          }
-                          appNoticeTimeoutRef.current = window.setTimeout(() => {
-                            setAppNotice(null);
-                            appNoticeTimeoutRef.current = null;
-                          }, 1200);
-                        }}
-                      >
-                        <span className="app-notice-text" title={appNotice.message}>
-                          {appNotice.message}
-                        </span>
-                        {/* 与正文并排的 flex 子项：避免内联 button 被 pre-wrap 挤到下一行 */}
-                        {(appNotice.kind === "error" || appNotice.kind === "warning") && (
-                          <button
-                            type="button"
-                            className="app-notice-copy"
-                            title={t("common.copy")}
-                            aria-label={t("common.copy")}
-                            onClick={async (event) => {
-                              event.stopPropagation();
-                              await writeClipboard(appNotice.message);
-                              const btn = event.currentTarget;
-                              btn.classList.add("is-copied");
-                              window.setTimeout(() => btn.classList.remove("is-copied"), 900);
-                            }}
-                          >
-                            <Copy size={11} strokeWidth={1.8} aria-hidden="true" />
-                          </button>
-                        )}
-                      </div>
-                    )}
                   {sessionActionsOpen && activeAgentId && (
                     <div className="session-combo-menu">
                       <button
@@ -9751,6 +9676,7 @@ filePath={gitDrawerDiff.filePath}
         </div>
       )}
 
+      <Toaster />
 
     </div>
   );

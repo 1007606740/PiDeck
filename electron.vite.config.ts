@@ -1,5 +1,6 @@
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "node:path";
 import type { Plugin } from "vite";
 
@@ -62,7 +63,7 @@ export default defineConfig({
         "@shared": resolve("src/shared"),
       },
     },
-    plugins: [react(), katexWoff2OnlyPlugin()],
+    plugins: [react(), tailwindcss(), katexWoff2OnlyPlugin()],
     build: {
       // 不计算 gzip 压缩后大小（节约构建时间）
       reportCompressedSize: false,

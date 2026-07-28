@@ -1,3 +1,37 @@
+@import "tailwindcss" (preflight: false);
+
+@theme {
+  --color-accent: var(--color-accent);
+  --color-accent-strong: var(--color-accent-strong);
+  --color-accent-soft: var(--color-accent-soft);
+  --color-bg-app: var(--color-bg-app);
+  --color-bg-panel: var(--color-bg-panel);
+  --color-bg-sidebar: var(--color-bg-sidebar);
+  --color-bg-muted: var(--color-bg-muted);
+  --color-bg-hover: var(--color-bg-hover);
+  --color-bg-active: var(--color-bg-active);
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-tertiary: var(--color-text-tertiary);
+  --color-text-inverse: var(--color-text-inverse);
+  --color-border-subtle: var(--color-border-subtle);
+  --color-border-default: var(--color-border-default);
+  --color-border-strong: var(--color-border-strong);
+  --color-danger: var(--color-danger);
+  --color-warning: var(--color-warning);
+  --color-info: var(--color-info);
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-pill: var(--radius-pill);
+  --font-family-base: var(--font-family-base);
+  --font-family-mono: var(--font-family-mono);
+  --shadow-popover: var(--shadow-popover);
+  --shadow-modal: var(--shadow-modal);
+}
+
 @font-face {
   font-family: "PiDeckPlantin";
   src: url("./assets/fonts/PlantinNowVariable-Italic.woff2") format("woff2");
@@ -20725,15 +20759,4 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
   margin-top: var(--space-1);
 }
 
-.app-notice.app-notice-error::before {
-  background: var(--color-danger);
-}
-.app-notice.app-notice-warning::before {
-  background: var(--color-warning);
-}
-.app-notice.app-notice-error {
-  border: 1px solid color-mix(in srgb, var(--color-danger) 28%, transparent);
-}
-.app-notice.app-notice-warning {
-  border: 1px solid color-mix(in srgb, var(--color-warning) 28%, transparent);
-}
+
