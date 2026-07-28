@@ -3340,13 +3340,43 @@ function registerIpc() {
 	ipcMain.handle(ipcChannels.terminalList, (_event, agentId: string) =>
 		terminalManager.list(agentId),
 	);
-	ipcMain.handle(ipcChannels.terminalEnsure, (_event, agentId: string, cwd?: string) =>
-		terminalManager.ensure(agentId, cwd),
-	);
+	/**
+	 * terminal ensure/create 依赖 agentManager.getCwd(agentId)。
+	 * 渲染层 pending-* 占位 id 或 agent 刚销毁时会抛 Agent not found；
+	 * 这里软失败返回空列表，避免 IPC reject → renderer unhandledrejection
+	 * （Mac 上用户感知为「一启动 agent 就闪退/报错」）。
+	 */
+	ipcMain.handle(ipcChannels.terminalEnsure, (_event, agentId: string, cwd?: string) => {
+		if (typeof agentId === "string" && agentId.startsWith("pending-")) return [];
+		try {
+			return terminalManager.ensure(agentId, cwd);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (/Agent not found/i.test(message)) {
+				void appLogger.warn("terminal", "terminal:ensure skipped, agent not ready", {
+					agentId,
+					error: message,
+				});
+				return [];
+			}
+			throw error;
+		}
+	});
 	ipcMain.handle(ipcChannels.terminalCreate, async (_event, agentId: string, shell?: string, cwd?: string) => {
-		const result = await terminalManager.create(agentId, shell as TerminalShell | undefined, cwd);
-		void appLogger.info("terminal", "Terminal created", { agentId, tabId: result.id, shell });
-		return result;
+		if (typeof agentId === "string" && agentId.startsWith("pending-")) {
+			throw new Error("Terminal is not ready while agent is still starting");
+		}
+		try {
+			const result = terminalManager.create(agentId, shell as TerminalShell | undefined, cwd);
+			void appLogger.info("terminal", "Terminal created", { agentId, tabId: result.id, shell });
+			return result;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (/Agent not found/i.test(message)) {
+				throw new Error("Terminal is not ready: agent not found");
+			}
+			throw error;
+		}
 	});
 	ipcMain.handle(
 		ipcChannels.terminalInput,

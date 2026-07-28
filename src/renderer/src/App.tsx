@@ -146,6 +146,9 @@ import {
   AskQuestionCard,
   BatchAskInlineBar,
   ExtensionWidgetCard,
+  MERGED_TASK_WIDGET_KEY,
+  PLAN_WIDGET_KEY,
+  TODO_WIDGET_KEY,
   MultiSelectModal,
   WorktreeCreateDialog,
   stripMarkdown,
@@ -7624,32 +7627,89 @@ export function App() {
 
         {activeAgent && (
         <footer ref={composerRef} className="composer">
-          {/* 扩展 widget（Todo/Plan）固定在输入框上方，不进消息流、不贴消息区顶部。 */}
+          {/* 扩展 widget 固定在输入框上方；Todo+Plan 合并成一张任务卡，内部分区区分来源。 */}
           {activeAgentId && extensionWidgetsByAgent[activeAgentId] && Object.keys(extensionWidgetsByAgent[activeAgentId]).length > 0 && (() => {
             const entries = Object.entries(extensionWidgetsByAgent[activeAgentId]);
             const widgetSessionKey = getAgentSessionStorageKey(activeAgent, activeAgentId);
-            const visibleEntries = entries.filter(([key]) =>
-              widgetSessionKey && !(agentDismissedWidgets[widgetSessionKey]?.includes(key))
-            );
+            const isDismissed = (key: string) =>
+              Boolean(widgetSessionKey && agentDismissedWidgets[widgetSessionKey]?.includes(key));
+            const visibleEntries = entries.filter(([key]) => !isDismissed(key));
             if (widgetsCollapsed || visibleEntries.length === 0) return null;
+
+            // Todo / Plan 仍由各自扩展 setWidget，这里只在 UI 层合成一张卡，
+            // 避免并排两块；关闭时仍按原始 key 分别 dismiss，保持扩展协议不变。
+            const todoEntry = visibleEntries.find(([key]) => key === TODO_WIDGET_KEY);
+            const planEntry = visibleEntries.find(([key]) => key === PLAN_WIDGET_KEY);
+            const otherEntries = visibleEntries.filter(
+              ([key]) => key !== TODO_WIDGET_KEY && key !== PLAN_WIDGET_KEY,
+            );
+            const taskSections = [
+              todoEntry
+                ? {
+                    key: TODO_WIDGET_KEY,
+                    label: t("app.widgetTodo"),
+                    lines: todoEntry[1],
+                  }
+                : null,
+              planEntry
+                ? {
+                    key: PLAN_WIDGET_KEY,
+                    label: t("app.widgetPlan"),
+                    lines: planEntry[1],
+                  }
+                : null,
+            ].filter((s): s is { key: string; label: string; lines: string[] } => Boolean(s));
+
+            const dismissKeys = (keys: string[]) => {
+              if (!widgetSessionKey || keys.length === 0) return;
+              setAgentDismissedWidgets((prev) => {
+                const current = prev[widgetSessionKey] ?? [];
+                const merged = [...current];
+                let changed = false;
+                for (const key of keys) {
+                  if (!merged.includes(key)) {
+                    merged.push(key);
+                    changed = true;
+                  }
+                }
+                if (!changed) return prev;
+                const next = { ...prev, [widgetSessionKey]: merged };
+                saveDismissedExtensionWidgets(next);
+                return next;
+              });
+            };
+
             return (
               <div className="extension-widgets-container" key="widgets-container">
-                {visibleEntries.map(([widgetKey, widgetLines]) => (
+                {taskSections.length > 0 && (
+                  <ExtensionWidgetCard
+                    key={MERGED_TASK_WIDGET_KEY}
+                    widgetKey={
+                      taskSections.length > 1
+                        ? MERGED_TASK_WIDGET_KEY
+                        : taskSections[0].key
+                    }
+                    lines={[]}
+                    sections={taskSections}
+                    meta={
+                      taskSections.length > 1
+                        ? t("app.widgetTasksMeta", {
+                            todo: String(todoEntry?.[1]?.length ?? 0),
+                            plan: String(planEntry?.[1]?.length ?? 0),
+                          })
+                        : undefined
+                    }
+                    sessionIdOrPath={widgetSessionKey}
+                    onClose={() => dismissKeys(taskSections.map((s) => s.key))}
+                  />
+                )}
+                {otherEntries.map(([widgetKey, widgetLines]) => (
                   <ExtensionWidgetCard
                     key={widgetKey}
                     widgetKey={widgetKey}
                     lines={widgetLines}
                     sessionIdOrPath={widgetSessionKey}
-                    onClose={() => {
-                      if (!widgetSessionKey) return;
-                      setAgentDismissedWidgets((prev) => {
-                        const current = prev[widgetSessionKey] ?? [];
-                        if (current.includes(widgetKey)) return prev;
-                        const next = { ...prev, [widgetSessionKey]: [...current, widgetKey] };
-                        saveDismissedExtensionWidgets(next);
-                        return next;
-                      });
-                    }}
+                    onClose={() => dismissKeys([widgetKey])}
                   />
                 ))}
               </div>
@@ -8327,7 +8387,8 @@ export function App() {
           <TerminalDock
             key={terminalDockOwnerKey}
             sessionKey={
-              activeAgentId && !activeAgentId.startsWith("pending-")
+              // pending agent 尚未进入主进程 agents map；sessionKey 绝不能用 pending-*
+              activeAgentId && !isPendingAgentId(activeAgentId)
                 ? activeAgentId
                 : activeProject?.path
                   ? projectTerminalSessionKey(activeProject.path)

@@ -132,12 +132,14 @@ function cleanStepText(text: string): string {
 }
 
 function extractTodoItems(message: string): TodoItem[] {
-	const headerMatch = message.match(/\*{0,2}Plan:\*{0,2}\s*\n/i);
-	if (!headerMatch) return [];
+	// 兼容 Plan: / **Plan:** / 中文「计划：」；不要求标题后必须立刻换行。
+	const headerMatch = message.match(/(?:\*{0,2}Plan:\*{0,2}|计划[:：])\s*/i);
+	if (!headerMatch || headerMatch.index === undefined) return [];
 
 	const items: TodoItem[] = [];
-	const planSection = message.slice(message.indexOf(headerMatch[0]) + headerMatch[0].length);
-	const numberedPattern = /^\s*(\d+)[.)]\s+\*{0,2}([^*\n]+)/gm;
+	const planSection = message.slice(headerMatch.index + headerMatch[0].length);
+	// 支持 1. / 1) / 1、 / 1:；整行再 clean，避免加粗步骤被截断。
+	const numberedPattern = /^\s*(\d+)[.)、:]\s+(.+)$/gm;
 	for (const match of planSection.matchAll(numberedPattern)) {
 		const cleaned = cleanStepText(match[2] ?? "");
 		if (cleaned.length > 3 && !cleaned.startsWith("/")) {
@@ -171,15 +173,20 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 	let toolsBeforePlanMode: string[] | undefined;
 
 	function updateWidget(ctx: ExtensionContext): void {
-		if (executionMode && todoItems.length > 0) {
-			const completed = todoItems.filter((item) => item.completed).length;
-			ctx.ui.setWidget("pi-deck-plan-todos", [
-				`计划进度 ${completed}/${todoItems.length}`,
-				...todoItems.map((item) => `${item.completed ? "☑" : "☐"} ${item.step}. ${item.text}`),
-			]);
+		// 规划阶段生成 Plan 后就应显示；以前只在 executionMode 才 setWidget，
+		// 导致用户选「继续只读/关闭弹框」时 Plan 分区永远空白。
+		if (todoItems.length === 0) {
+			ctx.ui.setWidget("pi-deck-plan-todos", undefined);
 			return;
 		}
-		ctx.ui.setWidget("pi-deck-plan-todos", undefined);
+		const completed = todoItems.filter((item) => item.completed).length;
+		const title = executionMode
+			? `计划进度 ${completed}/${todoItems.length}`
+			: `计划草案 ${todoItems.length} 步`;
+		ctx.ui.setWidget("pi-deck-plan-todos", [
+			title,
+			...todoItems.map((item) => `${item.completed ? "☑" : "☐"} ${item.step}. ${item.text}`),
+		]);
 	}
 
 	function persistState(): void {
@@ -358,6 +365,8 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 		const lastAssistant = [...event.messages].reverse().find(isAssistantMessage);
 		if (lastAssistant) todoItems = extractTodoItems(getTextContent(lastAssistant));
 		if (todoItems.length === 0) return;
+		// 先推 Plan 分区，再弹后续选择；用户无论选执行/继续/关闭都能在输入框上方看到草案。
+		updateWidget(ctx);
 		persistState();
 
 		const todoListText = todoItems.map((item) => `${item.step}. ☐ ${item.text}`).join("\n");

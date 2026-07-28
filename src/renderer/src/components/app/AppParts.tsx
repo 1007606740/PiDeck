@@ -550,6 +550,18 @@ export function SessionStatus(props: {
 const EXTENSION_WIDGET_COLLAPSED_KEY_PREFIX =
 	"pid:extension-widget-collapsed:";
 
+/** Todo / Plan 两个扩展各自 setWidget，桌面端合成一张任务卡时用此 key 做折叠持久化。 */
+export const MERGED_TASK_WIDGET_KEY = "pi-deck-task-board";
+export const TODO_WIDGET_KEY = "pi-deck-todo";
+export const PLAN_WIDGET_KEY = "pi-deck-plan-todos";
+
+export type ExtensionWidgetSection = {
+	/** 原始 widget key，关闭合并卡时用于逐个 dismiss */
+	key: string;
+	label: string;
+	lines: string[];
+};
+
 /** 渲染 widget 单行内容，将 ✓ 标记高亮为绿色，让 todo 等扩展的完成态更醒目。 */
 function renderWidgetLine(line: string): ReactNode {
 	const parts = line.split(/(✓)/g);
@@ -571,13 +583,24 @@ export function ExtensionWidgetCard(props: {
 	onClose: () => void;
 	/** 会话唯一标识，用于避免 Todo 等同名 widget 在不同 agent 间共享折叠状态。 */
 	sessionIdOrPath?: string;
+	/**
+	 * 可选分区：Todo + Plan 合并成一张卡时，用分区标题区分来源，
+	 * 而不是并排两张卡。有 sections 时优先渲染分区，忽略顶层 lines。
+	 */
+	sections?: ExtensionWidgetSection[];
+	/** 合并卡标题旁的摘要，如 “TODO 3 · Plan 2” */
+	meta?: string;
 }) {
 	const storageKey = props.sessionIdOrPath
 		? `${EXTENSION_WIDGET_COLLAPSED_KEY_PREFIX}${props.sessionIdOrPath}:${props.widgetKey}`
 		: `${EXTENSION_WIDGET_COLLAPSED_KEY_PREFIX}${props.widgetKey}`;
 	// 将非人类可读的 widget key 映射为友好展示名
 	const widgetLabel =
-		({ "pi-deck-todo": "TODO", "pi-deck-plan-todos": "Plan" } as Record<string, string>)[props.widgetKey] ?? props.widgetKey;
+		({
+			[TODO_WIDGET_KEY]: t("app.widgetTodo"),
+			[PLAN_WIDGET_KEY]: t("app.widgetPlan"),
+			[MERGED_TASK_WIDGET_KEY]: t("app.widgetTasks"),
+		} as Record<string, string>)[props.widgetKey] ?? props.widgetKey;
 	const [expanded, setExpanded] = useState(() => {
 		if (typeof window === "undefined") return true;
 		const stored = localStorage.getItem(storageKey);
@@ -601,6 +624,9 @@ export function ExtensionWidgetCard(props: {
 		});
 	}, [storageKey]);
 
+	const sections = props.sections?.filter((s) => s.lines.length > 0) ?? [];
+	const useSections = sections.length > 0;
+
 	return (
 		<div className="extension-widget-card" data-widget-key={props.widgetKey}>
 			<div className="extension-widget-card-header">
@@ -614,6 +640,9 @@ export function ExtensionWidgetCard(props: {
 						className={`extension-widget-card-chevron${expanded ? " open" : ""}`}
 					/>
 					<span className="extension-widget-card-title">{widgetLabel}</span>
+					{props.meta ? (
+						<span className="extension-widget-card-meta">{props.meta}</span>
+					) : null}
 				</button>
 				<button
 					className="extension-widget-card-close"
@@ -629,11 +658,29 @@ export function ExtensionWidgetCard(props: {
 			</div>
 			{expanded && (
 				<div className="extension-widget-card-content">
-					{props.lines.map((line, index) => (
-						<div key={index} className="extension-widget-card-line">
-							{renderWidgetLine(line)}
-						</div>
-					))}
+					{useSections
+						? sections.map((section) => (
+								<div
+									key={section.key}
+									className="extension-widget-section"
+									data-section-key={section.key}
+								>
+									{/* 多分区时才显示分区标题，单分区标题已在卡片头体现 */}
+									{sections.length > 1 ? (
+										<div className="extension-widget-section-label">{section.label}</div>
+									) : null}
+									{section.lines.map((line, index) => (
+										<div key={`${section.key}-${index}`} className="extension-widget-card-line">
+											{renderWidgetLine(line)}
+										</div>
+									))}
+								</div>
+						  ))
+						: props.lines.map((line, index) => (
+								<div key={index} className="extension-widget-card-line">
+									{renderWidgetLine(line)}
+								</div>
+						  ))}
 				</div>
 			)}
 		</div>
