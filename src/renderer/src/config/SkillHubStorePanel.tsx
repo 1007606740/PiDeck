@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Search, Download, ArrowLeft, Check, AlertCircle, X, Trash2, BadgeCheck } from "lucide-react";
 import { t } from "../i18n";
 import { showNotice } from "../utils/notice";
+import { writeClipboard } from "../utils/clipboard";
 import { openInSystemBrowser } from "../utils/openExternal";
 import type { SkillHubItem, SkillHubDetail, SkillHubSearchResult, SkillHubInstallResult, PiSkillListResult } from "../../../shared/types";
 
@@ -311,7 +312,7 @@ export function SkillHubStorePanel() {
 									onClick={(e) => {
 										e.stopPropagation();
 										const pkg = item.slug.slice(0, item.slug.lastIndexOf("/"));
-										navigator.clipboard.writeText(`npx skills add ${pkg}`);
+										writeClipboard(`npx skills add ${pkg}`);
 										showNotice(t("app.codeCopied"), 1200);
 									}}
 								>

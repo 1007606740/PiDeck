@@ -872,5 +872,9 @@ export function createPreviewApi(): PiDesktopApi {
 			save: async () => {},
 			export: async () => false,
 		},
+
+		clipboard: {
+			writeText: async (_text: string) => {},
+		},
 	};
 }

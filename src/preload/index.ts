@@ -1174,6 +1174,19 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.dialogPickFiles, options) as Promise<string[]>,
 	},
 
+	// ===== 剪贴板 =====
+	clipboard: {
+		/**
+		 * 写入文本到系统剪贴板。
+		 * 使用 Electron 主进程 clipboard API，不依赖 document focus，
+		 * 避免 navigator.clipboard.writeText() 在窗口失焦时抛
+		 * "Document is not focused" 异常。
+		 */
+		writeText: (text: string) => {
+			clipboard.writeText(text);
+		},
+	},
+
 	// ===== 内置浏览器 =====
 	browser: {
 		/** 在系统默认浏览器中打开外部链接。

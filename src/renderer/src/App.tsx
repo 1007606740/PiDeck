@@ -63,6 +63,7 @@ import { TerminalDock } from "./components/terminal/TerminalDock";
 import { FeishuLinkIndicator } from "./components/feishu/FeishuLinkIndicator";
 import { useFeishuBridge } from "./hooks/useFeishuBridge";
 import { CloseIconButton } from "./components/ui/IconButton";
+import { writeClipboard } from "./utils/clipboard";
 import { THINKING_LEVELS } from "./components/app/AppParts";
 import {
   buildComposerPromptSubmission,
@@ -1814,7 +1815,7 @@ export function App() {
         }).join(separator)
       : selected.map((m) => m.text).join(separator);
 
-    await navigator.clipboard.writeText(content);
+    await writeClipboard(content);
     showToast(kind === "text" ? t("copy.asTextCopied") : t("copy.asMarkdownCopied"));
     setMultiSelectOpen(false);
   }, [activeMessages, renderedRuns]);
@@ -7334,30 +7335,10 @@ export function App() {
                             aria-label={t("common.copy")}
                             onClick={async (event) => {
                               event.stopPropagation();
-                              try {
-                                await navigator.clipboard.writeText(appNotice.message);
-                                const btn = event.currentTarget;
-                                btn.classList.add("is-copied");
-                                window.setTimeout(() => btn.classList.remove("is-copied"), 900);
-                              } catch {
-                                // navigator.clipboard.writeText 在 Electron 中有时抛异常但实际已写入
-                                // 尝试 fallback 复制
-                                try {
-                                  const textarea = document.createElement("textarea");
-                                  textarea.value = appNotice.message;
-                                  textarea.style.position = "fixed";
-                                  textarea.style.opacity = "0";
-                                  document.body.appendChild(textarea);
-                                  textarea.select();
-                                  document.execCommand("copy");
-                                  document.body.removeChild(textarea);
-                                  const btn = event.currentTarget;
-                                  btn.classList.add("is-copied");
-                                  window.setTimeout(() => btn.classList.remove("is-copied"), 900);
-                                } catch {
-                                  showNotice(t("copy.failed"), 2000, "error");
-                                }
-                              }
+                              await writeClipboard(appNotice.message);
+                              const btn = event.currentTarget;
+                              btn.classList.add("is-copied");
+                              window.setTimeout(() => btn.classList.remove("is-copied"), 900);
                             }}
                           >
                             <Copy size={11} strokeWidth={1.8} aria-hidden="true" />
@@ -8838,7 +8819,7 @@ export function App() {
             setFileMenu(null);
           }}
           onCopyPath={() => {
-            void navigator.clipboard.writeText(fileMenu.node.path);
+            void writeClipboard(fileMenu.node.path);
             setFileMenu(null);
             showToast(t("app.pathCopied"), 1200);
           }}
@@ -8947,7 +8928,7 @@ export function App() {
             }
           }}
           onCopyProjectPath={() => {
-            void navigator.clipboard.writeText(projectMenu.project.path);
+            void writeClipboard(projectMenu.project.path);
             showToast(t("common.copied"));
             setProjectMenu(null);
           }}
@@ -9047,7 +9028,7 @@ export function App() {
           onCopySessionFilePath={() => {
             const path = agentMenu.agent.sessionPath;
             if (path) {
-              void navigator.clipboard.writeText(path);
+              void writeClipboard(path);
               showToast(t("common.copied"));
             }
             setAgentMenu(null);
@@ -9098,7 +9079,7 @@ export function App() {
             void copySidebarSession(sessionMenu.projectId, sessionMenu.session);
           }}
           onCopySessionFilePath={() => {
-            void navigator.clipboard.writeText(sessionMenu.session.filePath);
+            void writeClipboard(sessionMenu.session.filePath);
             showToast(t("common.copied"));
             setSessionMenu(null);
           }}
@@ -9834,7 +9815,7 @@ function FeedbackModal({
   const authorUrl = "https://github.com/ayuayue";
 
   async function copyReport() {
-    await navigator.clipboard.writeText(report);
+    await writeClipboard(report);
     onCopy();
   }
 

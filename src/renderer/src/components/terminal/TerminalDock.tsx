@@ -9,6 +9,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { showNotice } from "../../utils/notice";
+import { writeClipboard } from "../../utils/clipboard";
 import { ChevronDown, ChevronUp, MoreHorizontal, Plus, X } from "lucide-react";
 import type { PiDesktopApi } from "../../../../preload";
 import type { TerminalTab } from "../../../../shared/types";
@@ -351,7 +352,7 @@ export function TerminalDock(props: {
 		// xterm 默认右键会落到浏览器菜单；选区存在时直接复制，符合桌面终端的右键复制习惯。
 		event.preventDefault();
 		event.stopPropagation();
-		await navigator.clipboard.writeText(selection);
+		await writeClipboard(selection);
 		showNotice(t("terminal.copied"), 1200);
 		xtermRef.current?.focus();
 	}

@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { X } from "lucide-react";
 import { ConfirmDialog } from "../components/app/AppParts";
+import { writeClipboard } from "../utils/clipboard";
 import type {
 	FeishuBotConfig,
 	FeishuBridgeStatus,
@@ -258,7 +259,7 @@ export function ImTab(_props: Props) {
 	}, [api, loadData]);
 
 	const handleCopyValue = useCallback(async (key: string, value: string) => {
-		await navigator.clipboard.writeText(value);
+		await writeClipboard(value);
 		setCopiedCredential(key);
 		setTimeout(() => setCopiedCredential(null), 1600);
 	}, []);
@@ -708,21 +709,21 @@ export function ImTab(_props: Props) {
 							<p style={{ marginTop: 20, fontWeight: 600 }}>{t("config.im.guideScopeTitle")}</p>
 							<p style={{ fontSize: "var(--font-size-micro)", color: "var(--color-text-tertiary)" }}>{t("config.im.guideScopeDesc")}</p>
 							<pre className="config-im-code-block">{SCOPES_JSON}</pre>
-							<button className="config-btn small" onClick={() => { navigator.clipboard.writeText(SCOPES_JSON); setCopiedScope(true); setTimeout(() => setCopiedScope(false), 2000); }}>
+							<button className="config-btn small" onClick={() => { writeClipboard(SCOPES_JSON); setCopiedScope(true); setTimeout(() => setCopiedScope(false), 2000); }}>
 								{copiedScope ? t("common.copied") : t("common.copy")}
 							</button>
 
 							<p style={{ marginTop: 20, fontWeight: 600 }}>{t("config.im.guideEventsTitle")}</p>
 							<p style={{ fontSize: "var(--font-size-micro)", color: "var(--color-text-tertiary)" }}>{t("config.im.guideEventsDesc")}</p>
 							<pre className="config-im-code-block">{EVENTS_JSON}</pre>
-							<button className="config-btn small" onClick={() => { navigator.clipboard.writeText(EVENTS_JSON); setCopiedEvents(true); setTimeout(() => setCopiedEvents(false), 2000); }}>
+							<button className="config-btn small" onClick={() => { writeClipboard(EVENTS_JSON); setCopiedEvents(true); setTimeout(() => setCopiedEvents(false), 2000); }}>
 								{copiedEvents ? t("common.copied") : t("common.copy")}
 							</button>
 
 							<p style={{ marginTop: 20, fontWeight: 600 }}>{t("config.im.guideCallbacksTitle")}</p>
 							<p style={{ fontSize: "var(--font-size-micro)", color: "var(--color-text-tertiary)" }}>{t("config.im.guideCallbacksDesc")}</p>
 							<pre className="config-im-code-block">{CALLBACKS_JSON}</pre>
-							<button className="config-btn small" onClick={() => { navigator.clipboard.writeText(CALLBACKS_JSON); setCopiedCallbacks(true); setTimeout(() => setCopiedCallbacks(false), 2000); }}>
+							<button className="config-btn small" onClick={() => { writeClipboard(CALLBACKS_JSON); setCopiedCallbacks(true); setTimeout(() => setCopiedCallbacks(false), 2000); }}>
 								{copiedCallbacks ? t("common.copied") : t("common.copy")}
 							</button>
 						</div>

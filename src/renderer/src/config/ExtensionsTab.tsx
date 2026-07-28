@@ -3,6 +3,7 @@ import { Copy, Download, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
 import type { PiCliUpdateResult, PiExtensionListResult, PiExtensionSummary, PiPackageInfo } from "../../../shared/types";
 import { t } from "../i18n";
 import { showNotice } from "../utils/notice";
+import { writeClipboard } from "../utils/clipboard";
 
 type ExtensionsApi = {
 	list: () => Promise<PiExtensionListResult>;
@@ -223,7 +224,7 @@ export function ExtensionsTab(props: {
 									onClick={(e) => {
 										e.stopPropagation();
 										const cmd = `pi install ${pkg.installCmd}`;
-										navigator.clipboard.writeText(cmd);
+										writeClipboard(cmd);
 										showNotice(t("app.codeCopied"), 1200);
 									}}
 								>

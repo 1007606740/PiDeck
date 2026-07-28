@@ -100,6 +100,7 @@ import { getFileIconSeti, getFileIconColor, getFileTypeLabel } from "../../fileI
 import { normalizeSessionPathForCompare } from "../../agentListDisplay";
 import { t, type TranslationKey } from "../../i18n";
 import { showNotice } from "../../utils/notice";
+import { writeClipboard } from "../../utils/clipboard";
 import { filePathFromHref, stripFileLocation, toInternalFileHref } from "../../utils/fileLinks";
 import { Button } from "../ui/Button";
 import { CloseIconButton, IconButton } from "../ui/IconButton";
@@ -1737,8 +1738,8 @@ function CopyMenu(props: {
 	useEffect(() => clearCloseTimer, []);
 	const copy = async (kind: "text" | "markdown" | "image") => {
 		try {
-			if (kind === "text") await navigator.clipboard.writeText(props.text);
-			if (kind === "markdown") await navigator.clipboard.writeText(props.markdown);
+			if (kind === "text") await writeClipboard(props.text);
+			if (kind === "markdown") await writeClipboard(props.markdown);
 			if (kind === "image" && props.targetRef.current) await copyElementAsPng(props.targetRef.current);
 			setCopied(kind);
 			setOpen(false);
@@ -1996,7 +1997,7 @@ const statusLabel =
 			: "";
 	const [copied, setCopied] = useState(false);
 	const handleCopy = () => {
-		navigator.clipboard.writeText(detailText);
+		writeClipboard(detailText);
 		setCopied(true);
 		showNotice(t("app.codeCopied"), 1200);
 		setTimeout(() => setCopied(false), 2000);
@@ -2627,7 +2628,7 @@ function StreamingCodeBlock(props: React.HTMLAttributes<HTMLPreElement>) {
 	const text = extractText(codeProps?.children ?? props.children);
 	const [copied, setCopied] = useState(false);
 	const handleCopy = () => {
-		navigator.clipboard.writeText(text);
+		writeClipboard(text);
 		setCopied(true);
 		showNotice(t("app.codeCopied"), 1200);
 		setTimeout(() => setCopied(false), 1800);
@@ -3523,7 +3524,7 @@ function MathSpan(props: React.HTMLAttributes<HTMLSpanElement>) {
 		const source = annotation?.textContent || extractText(children);
 		// 行内公式用 $...$ 包裹，块级公式用 $$...$$ 包裹
 		const texContent = isDisplayMath ? `$$\n${source}\n$$` : `$${source}$`;
-		void navigator.clipboard.writeText(texContent);
+		void writeClipboard(texContent);
 		setCopied(true);
 		showNotice(t("app.latexCopied"), 1200);
 		setTimeout(() => setCopied(false), 1800);
@@ -3550,7 +3551,7 @@ function CodeBlock(props: React.HTMLAttributes<HTMLPreElement>) {
 		return <MermaidDiagram chart={text} />;
 	}
 	const handleCopy = () => {
-		navigator.clipboard.writeText(text);
+		writeClipboard(text);
 		setCopied(true);
 		showNotice(t("app.codeCopied"), 1200);
 		setTimeout(() => setCopied(false), 1800);
@@ -3623,7 +3624,7 @@ function MermaidDiagram(props: { chart: string }) {
 			) : (
 				<>
 					<div className="mermaid-toolbar" aria-label="Mermaid diagram controls">
-						<button type="button" onClick={() => { navigator.clipboard.writeText(`\`\`\`mermaid\n${props.chart}\n\`\`\``); showNotice(t("app.mermaidCopied"), 1200); }} title={t("common.copy")}><Copy size={14} /></button>
+						<button type="button" onClick={() => { writeClipboard(`\`\`\`mermaid\n${props.chart}\n\`\`\``); showNotice(t("app.mermaidCopied"), 1200); }} title={t("common.copy")}><Copy size={14} /></button>
 						<button type="button" onClick={() => setZoom((value) => Math.max(0.5, value - 0.1))}>−</button>
 						<span>{Math.round(zoom * 100)}%</span>
 						<button type="button" onClick={() => setZoom((value) => Math.min(2.5, value + 0.1))}>＋</button>
@@ -3648,7 +3649,7 @@ function MermaidMarkdownFallback(props: { chart: string; error: string }) {
 		<div className="code-block-wrap mermaid-fallback">
 			<button
 				className="code-copy"
-				onClick={() => { navigator.clipboard.writeText(markdown); showNotice(t("app.codeCopied"), 1200); }}
+				onClick={() => { writeClipboard(markdown); showNotice(t("app.codeCopied"), 1200); }}
 				title={t("code.copy")}
 			>
 				<Copy size={14} />
@@ -3689,7 +3690,7 @@ function MarkdownLink(
 	const handleContextMenu = (e: React.MouseEvent<HTMLAnchorElement>) => {
 		if (filePath === null) return;
 		e.preventDefault();
-		void navigator.clipboard.writeText(filePath).then(
+		void writeClipboard(filePath).then(
 			() => showNotice(t("app.pathCopied"), 1200),
 			() => showNotice(t("copy.failed"), 2000, "error"),
 		);
@@ -4081,7 +4082,7 @@ export function RpcLogModal(props: {
 	}, [props.logs.length, visibleLogs.length]);
 
 	const copyLogs = (logs: typeof visibleLogs) =>
-		navigator.clipboard.writeText(logs.map(formatRpcLogForCopy).join("\n"));
+		writeClipboard(logs.map(formatRpcLogForCopy).join("\n"));
 
 	return (
 		<div className="modal-backdrop" onClick={props.onClose}>
@@ -4156,10 +4157,10 @@ export function RpcLogModal(props: {
 									</span>
 									<span className="log-summary">{log.summary}</span>
 									<div className="rpc-log-entry-actions" onClick={(event) => event.stopPropagation()}>
-										<button onClick={() => navigator.clipboard.writeText(formatRpcLogForCopy(log))}>
+										<button onClick={() => writeClipboard(formatRpcLogForCopy(log))}>
 											{t("common.copy")}
 										</button>
-										<button onClick={() => navigator.clipboard.writeText(jsonText)}>
+										<button onClick={() => writeClipboard(jsonText)}>
 											{t("rpc.copyJson")}
 										</button>
 									</div>
