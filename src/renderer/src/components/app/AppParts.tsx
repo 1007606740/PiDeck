@@ -4146,10 +4146,22 @@ function MarkdownLink(
 		if (!props.href) return;
 
 		if (filePath !== null) {
+			// 本地文件链接不受 linkOpenMode 影响，始终走 onOpenFile。
 			if (onOpenFile) void onOpenFile(stripFileLocation(filePath));
-		} else {
-			void onOpenExternal(props.href);
+			return;
 		}
+
+		// 仅 http(s) 外链：Ctrl/Cmd+点击强制系统浏览器；普通点击仍跟 linkOpenMode。
+		// 不扩散到非链接控件，避免误伤按钮/chip 等交互。
+		const forceSystem = e.ctrlKey || e.metaKey;
+		if (forceSystem && (props.href.startsWith("http:") || props.href.startsWith("https:"))) {
+			const open = window.piDesktop?.app?.openExternal;
+			if (open) {
+				void open(props.href, true);
+				return;
+			}
+		}
+		void onOpenExternal(props.href);
 	};
 	const handleContextMenu = (e: React.MouseEvent<HTMLAnchorElement>) => {
 		if (filePath === null) return;
