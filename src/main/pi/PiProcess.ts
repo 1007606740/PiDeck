@@ -14,6 +14,9 @@ type PiProcessSettings = Pick<
   | "wslEnabled"
   | "wslDistro"
   | "wslUser"
+  | "piRpcOffline"
+  | "piRpcNoExtensions"
+  | "piRpcNoSkills"
 >;
 
 type PiProcessLocator = Pick<
@@ -44,6 +47,25 @@ export class PiProcess extends EventEmitter {
   private static versionSupportsTrustFlags(minorVersion: number | null): boolean {
     if (minorVersion === null) return false;
     return minorVersion >= 79;
+  }
+
+  /**
+   * 应用启动时预热 pi --version 缓存，避免首次创建 Agent（尤其 trust 路径）同步等待版本检测。
+   * 失败不抛错：仅影响缓存命中与诊断字段，不阻塞主流程。
+   */
+  static warmVersionCache(
+    settings?: PiProcessSettings,
+    locator: PiProcessLocator = new PiLocator(),
+  ): Promise<boolean> {
+    const command = locator.resolveCommand(
+      settings?.customPiPath,
+      settings?.wslEnabled,
+      settings?.wslDistro,
+      settings?.wslUser,
+    );
+    // 复用实例方法的缓存逻辑：构造临时实例只为调用 ensureVersionCheck。
+    const probe = new PiProcess(process.cwd(), settings, locator);
+    return probe.ensureVersionCheck(command);
   }
 
   /** 启动失败 / 异常退出时的诊断信息 */
@@ -86,6 +108,14 @@ export class PiProcess extends EventEmitter {
     // 信任确认由桌面端 AgentManager.ensureProjectTrust 在启动 pi 前完成，不再静默 --approve。
     // pi 在 RPC 模式下 project_trust 事件 hasUI 恒为 false，故信任弹窗由桌面端自行处理。
     const args = ["--mode", "rpc"];
+    // RPC 无 TUI，不需要主题发现/加载；跳过可少扫用户/项目/package themes，加快冷启动。
+    // 内置 dark/light 仍可被扩展渲染路径按需使用，只是不扫盘加载自定义主题。
+    args.push("--no-themes");
+    // 桌面端模型列表来自本地 models.json；默认 --offline 跳过 pi 启动期模型目录网络刷新。
+    if (this.settings?.piRpcOffline !== false) args.push("--offline");
+    // 诊断开关：坏扩展/技能有时会拖垮 RPC 初始化；用户可在开发设置临时关闭后重试。
+    if (this.settings?.piRpcNoExtensions) args.push("--no-extensions");
+    if (this.settings?.piRpcNoSkills) args.push("--no-skills");
     if (noSession) args.push("--no-session");
     if (sessionPath) args.push("--session", sessionPath);
 

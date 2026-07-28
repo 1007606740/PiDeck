@@ -7014,6 +7014,31 @@ export function SettingsModal(props: {
 										props.onChange({ disableUpdateCheck: checked })
 									}
 								/>
+								{/* 不要再插 setting-divider：SettingSwitch 已有 border-bottom，叠 divider 会双线。 */}
+								<div className="setting-row setting-row--section-label">
+									<div>
+										<strong>{t("settings.piRpcStartup")}</strong>
+										<small>{t("settings.piRpcStartupDesc")}</small>
+									</div>
+								</div>
+								<SettingSwitch
+									title={t("settings.piRpcOffline")}
+									description={t("settings.piRpcOfflineDesc")}
+									checked={props.settings.piRpcOffline}
+									onChange={(checked) => props.onChange({ piRpcOffline: checked })}
+								/>
+								<SettingSwitch
+									title={t("settings.piRpcNoExtensions")}
+									description={t("settings.piRpcNoExtensionsDesc")}
+									checked={props.settings.piRpcNoExtensions}
+									onChange={(checked) => props.onChange({ piRpcNoExtensions: checked })}
+								/>
+								<SettingSwitch
+									title={t("settings.piRpcNoSkills")}
+									description={t("settings.piRpcNoSkillsDesc")}
+									checked={props.settings.piRpcNoSkills}
+									onChange={(checked) => props.onChange({ piRpcNoSkills: checked })}
+								/>
 								<div className="setting-row">
 										<div>
 											<strong>{t("settings.currentVersion")}</strong>

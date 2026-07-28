@@ -1331,6 +1331,9 @@ export function App() {
     fontFamilyMonoCustom: "",
     removedBuiltInExtensions: [],
     disableUpdateCheck: false,
+    piRpcOffline: true,
+    piRpcNoExtensions: false,
+    piRpcNoSkills: false,
   });
   /* settingsNotice 已改用 showToast (app-notice) 实现 */
   const [piProxyNotice, setPiProxyNotice] = useState("");
@@ -7901,40 +7904,106 @@ export function App() {
             />
           )}
           {/* 传统单问（select/confirm/input/editor） */}
-          {showAskDialog && activeUiAsk && activeUiAsk.method !== "batch_ask" && (
-            <div className="ask-inline-bar">
+          {showAskDialog && activeUiAsk && activeUiAsk.method !== "batch_ask" && (() => {
+            // Plan 结束后的「下一步」选单：关闭=退出计划模式，绝不是「默认第一项」。
+            // 扩展用标题前缀 [PI_DECK_PLAN_NEXT] 标记；选项用「标题|说明」编码，桌面端拆主副文案。
+            const PLAN_NEXT_MARKER = "[PI_DECK_PLAN_NEXT]";
+            const PLAN_REVISE_MARKER = "[PI_DECK_PLAN_REVISE]";
+            const rawTitle = activeUiAsk.title || "";
+            const isPlanNextSelect =
+              activeUiAsk.method === "select" && rawTitle.includes(PLAN_NEXT_MARKER);
+            // 「修改计划」二次编辑：取消应回到三选一，而不是退出计划模式。
+            const isPlanReviseEditor =
+              activeUiAsk.method === "editor" && rawTitle.includes(PLAN_REVISE_MARKER);
+            const displayTitle = isPlanNextSelect
+              ? rawTitle.replace(PLAN_NEXT_MARKER, "").trim()
+              : isPlanReviseEditor
+                ? rawTitle.replace(PLAN_REVISE_MARKER, "").trim()
+                : (rawTitle || t("ask.pending"));
+            const isSelectWithOptions =
+              activeUiAsk.method === "select" &&
+              Array.isArray(activeUiAsk.options) &&
+              activeUiAsk.options.length > 0;
+            const cancelHintKey = isPlanNextSelect
+              ? "ask.planNextCancelHint"
+              : isPlanReviseEditor
+                ? "ask.planReviseBackHint"
+                : "ask.cancelHint";
+
+            const dismissAsk = () => {
+              if (!activeUiAsk.requestId || !activeAgentId) return;
+              setActiveUiRequest((current) => {
+                if (!current) return null;
+                const next = { ...current };
+                delete next[activeUiAsk.requestId];
+                if (Object.keys(next).length === 0) return null;
+                return next;
+              });
+            };
+            const respondValue = (value: string) => {
+              if (!activeUiAsk.requestId || !activeAgentId) return;
+              dismissAsk();
+              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
+            };
+            const respondCancel = () => {
+              if (!activeUiAsk.requestId || !activeAgentId) return;
+              dismissAsk();
+              // 普通 select 取消：发 value:null（与 abort 路径一致），避免 cancelled→undefined
+              // 被旧版 ask_question 的 `?? opts[0]` 回落成第一项。Plan 下一步/修改计划仍用 cancelled。
+              if (activeUiAsk.method === "select" && !isPlanNextSelect) {
+                api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, {
+                  value: null,
+                });
+                return;
+              }
+              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { cancelled: true });
+            };
+
+            /** Plan 选项：优先匹配已知前缀 → i18n；否则按「标题|说明」拆分 */
+            const planOptionMeta = (raw: string): { title: string; desc?: string; tone?: "primary" | "secondary" | "muted" } => {
+              if (raw.startsWith("开始执行")) {
+                return { title: t("ask.planNextExecute"), desc: t("ask.planNextExecuteDesc"), tone: "primary" };
+              }
+              if (raw.startsWith("先不执行") || raw.startsWith("继续规划")) {
+                return { title: t("ask.planNextContinue"), desc: t("ask.planNextContinueDesc"), tone: "secondary" };
+              }
+              if (raw.startsWith("修改计划")) {
+                return { title: t("ask.planNextRevise"), desc: t("ask.planNextReviseDesc"), tone: "muted" };
+              }
+              const sep = raw.indexOf("|");
+              if (sep > 0) {
+                return { title: raw.slice(0, sep).trim(), desc: raw.slice(sep + 1).trim() || undefined };
+              }
+              const dash = raw.indexOf(" — ");
+              if (dash > 0) {
+                return { title: raw.slice(0, dash).trim(), desc: raw.slice(dash + 3).trim() || undefined };
+              }
+              return { title: raw };
+            };
+
+            return (
+            <div className={`ask-inline-bar${isPlanNextSelect ? " ask-inline-bar--plan-next" : ""}`}>
               <div className="ask-inline-bar-header">
                 <MessageCircle size={14} />
-                <span>{t("ask.toolName")}</span>
-                {/* select 类型取消提示 */}
-                {activeUiAsk.method === "select" && Array.isArray(activeUiAsk.options) && activeUiAsk.options.length > 0 && (
-                  <span className="ask-inline-bar-cancel-hint">{t("ask.cancelHint")}</span>
+                <span>{(isPlanNextSelect || isPlanReviseEditor) ? t("app.composerModePlan") : t("ask.toolName")}</span>
+                {(isSelectWithOptions || isPlanReviseEditor) && (
+                  <span className="ask-inline-bar-cancel-hint">{t(cancelHintKey)}</span>
                 )}
                 <button
                   className="ask-inline-bar-close"
-                  title={t("common.close")}
+                  title={isPlanReviseEditor ? t("ask.planReviseBack") : t("common.close")}
                   onClick={() => {
-                    const isSelect = activeUiAsk.method === "select" && Array.isArray(activeUiAsk.options) && activeUiAsk.options.length > 0;
-                    if (isSelect) {
-                      showToast(t("ask.cancelHint"));
-                    }
-                    if (activeUiAsk.requestId && activeAgentId) {
-                      /* 立即从本地 state 移除，同时通知 Pi */
-                      setActiveUiRequest((current) => {
-                        if (!current) return null;
-                        const next = { ...current };
-                        delete next[activeUiAsk.requestId];
-                        if (Object.keys(next).length === 0) return null;
-                        return next;
-                      });
-                      api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { cancelled: true });
-                    }
+                    if (isSelectWithOptions || isPlanReviseEditor) showToast(t(cancelHintKey));
+                    respondCancel();
                   }}
                 >
                   <X size={14} />
                 </button>
               </div>
-              <div className="ask-inline-bar-question">{activeUiAsk.title || t("ask.pending")}</div>
+              <div className="ask-inline-bar-question">{displayTitle}</div>
+              {isPlanNextSelect && (
+                <div className="ask-inline-bar-guide">{t("ask.planNextGuide")}</div>
+              )}
               <div className="ask-inline-bar-body">
                 {activeUiAsk.method === "confirm" ? (
                   <div className="ask-inline-bar-options ask-inline-bar-options-confirm">
@@ -7942,13 +8011,7 @@ export function App() {
                       className="ask-inline-bar-option ask-inline-bar-option-yes"
                       onClick={() => {
                         if (activeUiAsk.requestId && activeAgentId) {
-                          setActiveUiRequest((current) => {
-                            if (!current) return null;
-                            const next = { ...current };
-                            delete next[activeUiAsk.requestId];
-                            if (Object.keys(next).length === 0) return null;
-                            return next;
-                          });
+                          dismissAsk();
                           api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: true });
                         }
                       }}
@@ -7959,13 +8022,7 @@ export function App() {
                       className="ask-inline-bar-option ask-inline-bar-option-no"
                       onClick={() => {
                         if (activeUiAsk.requestId && activeAgentId) {
-                          setActiveUiRequest((current) => {
-                            if (!current) return null;
-                            const next = { ...current };
-                            delete next[activeUiAsk.requestId];
-                            if (Object.keys(next).length === 0) return null;
-                            return next;
-                          });
+                          dismissAsk();
                           api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: false });
                         }
                       }}
@@ -7974,6 +8031,43 @@ export function App() {
                     </button>
                   </div>
                 ) : activeUiAsk.options && activeUiAsk.options.length > 0 ? (
+                  isPlanNextSelect ? (
+                    <div className="ask-plan-next-options" role="listbox" aria-label={displayTitle}>
+                      {activeUiAsk.options.filter((opt) => {
+                        const label = typeof opt === "string" ? opt : String((opt as any).label ?? opt);
+                        return !label.startsWith("✎");
+                      }).map((opt, i) => {
+                        const val = typeof opt === "string" ? opt : String((opt as any).value ?? (opt as any).label ?? opt);
+                        const meta = planOptionMeta(val);
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            role="option"
+                            className={`ask-plan-next-option${meta.tone ? ` tone-${meta.tone}` : ""}`}
+                            title={meta.desc ? `${meta.title}：${meta.desc}` : meta.title}
+                            onClick={() => respondValue(val)}
+                          >
+                            {/* 横排三钮：标题单行 + 说明最多两行；完整文案放 title 防截断看不清 */}
+                            <span className="ask-plan-next-option-title">{meta.title}</span>
+                            {meta.desc ? (
+                              <span className="ask-plan-next-option-desc">{meta.desc}</span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        className="ask-plan-next-dismiss"
+                        onClick={() => {
+                          showToast(t("ask.planNextCancelHint"));
+                          respondCancel();
+                        }}
+                      >
+                        {t("ask.planNextClose")}
+                      </button>
+                    </div>
+                  ) : (
                   <div className="ask-inline-bar-options">
                     {activeUiAsk.options.filter((opt) => {
                       const label = typeof opt === "string" ? opt : String((opt as any).label ?? opt);
@@ -7985,18 +8079,7 @@ export function App() {
                         <button
                           key={i}
                           className="ask-inline-bar-option"
-                          onClick={() => {
-                            if (activeUiAsk.requestId && activeAgentId) {
-                              setActiveUiRequest((current) => {
-                                if (!current) return null;
-                                const next = { ...current };
-                                delete next[activeUiAsk.requestId];
-                                if (Object.keys(next).length === 0) return null;
-                                return next;
-                              });
-                              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: val });
-                            }
-                          }}
+                          onClick={() => respondValue(val)}
                         >
                           <span className="ask-inline-bar-option-marker">{label}</span>
                         </button>
@@ -8014,13 +8097,7 @@ export function App() {
                             const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
                             const val = el?.value?.trim() ?? "";
                             if (val && activeUiAsk.requestId && activeAgentId) {
-                              setActiveUiRequest((current) => {
-                                if (!current) return null;
-                                const next = { ...current };
-                                delete next[activeUiAsk.requestId];
-                                if (Object.keys(next).length === 0) return null;
-                                return next;
-                              });
+                              dismissAsk();
                               pendingCustomInputRef.current = val;
                               api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
                             }
@@ -8034,13 +8111,7 @@ export function App() {
                           const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
                           const val = el?.value?.trim() ?? "";
                           if (val && activeUiAsk.requestId && activeAgentId) {
-                            setActiveUiRequest((current) => {
-                              if (!current) return null;
-                              const next = { ...current };
-                              delete next[activeUiAsk.requestId];
-                              if (Object.keys(next).length === 0) return null;
-                              return next;
-                            });
+                            dismissAsk();
                             pendingCustomInputRef.current = val;
                             api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
                           }
@@ -8050,50 +8121,74 @@ export function App() {
                       </button>
                     </div>
                   </div>
+                  )
                 ) : activeUiAsk.method === "input" || activeUiAsk.method === "editor" ? (
-                  <div className="ask-inline-bar-input-area">
-                    <input
-                      id="ask-inline-bar-input"
-                      className="ask-inline-bar-input"
-                      placeholder={activeUiAsk.placeholder || ""}
-                      autoFocus
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && activeUiAsk.requestId && activeAgentId) {
-                          const value = (e.target as HTMLInputElement).value;
-                          setActiveUiRequest((current) => {
-                            if (!current) return null;
-                            const next = { ...current };
-                            delete next[activeUiAsk.requestId];
-                            if (Object.keys(next).length === 0) return null;
-                            return next;
-                          });
-                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
-                        }
-                      }}
-                    />
-                    <button
-                      className="ask-inline-bar-submit-btn"
-                      onClick={() => {
-                        const value = (document.getElementById("ask-inline-bar-input") as HTMLInputElement)?.value ?? "";
-                        if (activeUiAsk.requestId && activeAgentId) {
-                          setActiveUiRequest((current) => {
-                            if (!current) return null;
-                            const next = { ...current };
-                            delete next[activeUiAsk.requestId];
-                            if (Object.keys(next).length === 0) return null;
-                            return next;
-                          });
-                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
-                        }
-                      }}
-                    >
-                      {t("common.submit")}
-                    </button>
+                  <div className={`ask-inline-bar-input-area${isPlanReviseEditor ? " ask-inline-bar-input-area--plan-revise" : ""}`}>
+                    {isPlanReviseEditor ? (
+                      <textarea
+                        id="ask-inline-bar-input"
+                        className="ask-inline-bar-input ask-inline-bar-textarea"
+                        placeholder={activeUiAsk.placeholder || t("ask.planRevisePlaceholder")}
+                        rows={3}
+                        autoFocus
+                        defaultValue={activeUiAsk.prefill || ""}
+                      />
+                    ) : (
+                      <input
+                        id="ask-inline-bar-input"
+                        className="ask-inline-bar-input"
+                        placeholder={activeUiAsk.placeholder || ""}
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && activeUiAsk.requestId && activeAgentId) {
+                            const value = (e.target as HTMLInputElement).value;
+                            respondValue(value);
+                          }
+                        }}
+                      />
+                    )}
+                    <div className="ask-inline-bar-input-actions">
+                      {isPlanReviseEditor && (
+                        <button
+                          type="button"
+                          className="ask-inline-bar-back-btn"
+                          title={t("ask.planReviseBackHint")}
+                          onClick={() => {
+                            showToast(t("ask.planReviseBackHint"));
+                            // cancelled → pi editor 返回 undefined → 扩展 while 循环回到三选一
+                            respondCancel();
+                          }}
+                        >
+                          {t("ask.planReviseBack")}
+                        </button>
+                      )}
+                      <button
+                        className="ask-inline-bar-submit-btn"
+                        onClick={() => {
+                          const el = document.getElementById("ask-inline-bar-input") as
+                            | HTMLInputElement
+                            | HTMLTextAreaElement
+                            | null;
+                          const value = el?.value ?? "";
+                          if (isPlanReviseEditor && !value.trim()) {
+                            // 空提交等价于返回，避免误发空修改意见
+                            showToast(t("ask.planReviseBackHint"));
+                            respondCancel();
+                            return;
+                          }
+                          respondValue(value);
+                        }}
+                      >
+                        {isPlanReviseEditor ? t("ask.planReviseSubmit") : t("common.submit")}
+                      </button>
+                    </div>
                   </div>
                 ) : null}
               </div>
             </div>
-          )}
+            );
+          })()}
+
           <div
             ref={composerBoxRef}
             className={`composer-box ${

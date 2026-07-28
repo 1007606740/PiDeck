@@ -6430,8 +6430,10 @@ body.ask-bar-active .ask-question-card.pending {
   font-weight: 500;
 }
 
-/* ask_question 内联栏 - 在当前会话的输入框上方显示，不遮挡其他页面 */
+/* ask_question 内联栏 - 输入框上方；普通 ask 与 Plan 下一步共用紧凑高度 */
 .ask-inline-bar {
+  /* 与 Plan 下一步共用总高上限，避免某一类弹层特别高 */
+  --ask-inline-max-height: min(220px, 32vh);
   border: 1px solid var(--color-border-strong);
   border-bottom: none;
   border-radius: var(--radius-md) var(--radius-md) 0 0;
@@ -6440,8 +6442,13 @@ body.ask-bar-active .ask-question-card.pending {
     var(--color-accent) 6%,
     var(--color-bg-panel)
   );
-  padding: var(--space-3) var(--space-3) var(--space-3);
+  padding: 8px 10px 8px;
   margin: 0;
+  max-height: var(--ask-inline-max-height);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 .ask-inline-bar-header {
   display: flex;
@@ -6450,7 +6457,8 @@ body.ask-bar-active .ask-question-card.pending {
   color: var(--color-accent);
   font-weight: 600;
   font-size: var(--font-size-caption);
-  margin-bottom: var(--space-2);
+  margin-bottom: 4px;
+  flex-shrink: 0;
 }
 .ask-inline-bar-cancel-hint {
   color: var(--color-text-tertiary);
@@ -6462,8 +6470,8 @@ body.ask-bar-active .ask-question-card.pending {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   margin-left: auto;
   border: none;
   border-radius: var(--radius-sm);
@@ -6478,23 +6486,27 @@ body.ask-bar-active .ask-question-card.pending {
   color: var(--color-text-primary);
 }
 .ask-inline-bar-question {
-  font-size: var(--font-size-body);
-  line-height: var(--line-height-body);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-control);
   word-break: break-word;
   color: var(--color-text-primary);
-  font-weight: 500;
-  margin-bottom: var(--space-3);
+  font-weight: 600;
+  margin-bottom: 4px;
+  flex-shrink: 0;
 }
 .ask-inline-bar-body {
-  /* 容器，子元素决定实际布局 */
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .ask-inline-bar-options {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
-  max-height: 180px;
-  overflow-y: auto;
-  padding-right: var(--space-1);
+  gap: 6px;
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
 }
 .ask-inline-bar-options-confirm {
   display: flex;
@@ -6510,15 +6522,15 @@ body.ask-bar-active .ask-question-card.pending {
   display: inline-flex;
   align-items: flex-start;
   justify-content: flex-start;
-  min-height: 30px;
-  padding: 6px 14px;
+  min-height: 26px;
+  padding: 4px 10px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
   background: var(--color-chat-control-bg);
   color: var(--color-text-secondary);
-  font-size: var(--font-size-control);
+  font-size: var(--font-size-caption);
   font-weight: 500;
-  line-height: var(--line-height-body);
+  line-height: var(--line-height-caption);
   cursor: pointer;
   transition: all 0.12s ease;
   font-family: var(--font-family-base);
@@ -6562,6 +6574,114 @@ body.ask-bar-active .ask-question-card.pending {
   font-weight: 500;
   line-height: var(--line-height-body);
 }
+
+/* Plan 结束「下一步」：紧凑卡片选项；总高与普通 ask 共用 --ask-inline-max-height */
+.ask-inline-bar--plan-next {
+  border-color: color-mix(in srgb, var(--color-brand-blue) 35%, var(--color-border-strong));
+  background: color-mix(
+    in srgb,
+    var(--color-brand-blue) 7%,
+    var(--color-bg-panel)
+  );
+}
+.ask-inline-bar-guide {
+  margin: 0 0 6px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-micro);
+  line-height: 1.35;
+  flex-shrink: 0;
+}
+.ask-plan-next-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  align-items: stretch;
+}
+/* 三列紧凑卡：标题单行 + 说明两行；用 grid 保宽，避免 flex min-width:0 把中文挤成竖排 */
+.ask-plan-next-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-chat-control-bg);
+  color: var(--color-text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+.ask-plan-next-option:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
+}
+.ask-plan-next-option:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+.ask-plan-next-option.tone-primary {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-chat-control-bg));
+}
+.ask-plan-next-option.tone-primary:hover {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 16%, var(--color-bg-hover));
+}
+.ask-plan-next-option.tone-secondary {
+  border-color: color-mix(in srgb, var(--color-brand-blue) 35%, var(--color-border-subtle));
+}
+.ask-plan-next-option-title {
+  max-width: 100%;
+  font-size: var(--font-size-caption);
+  font-weight: 650;
+  line-height: 1.25;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ask-plan-next-option-desc {
+  max-width: 100%;
+  font-size: var(--font-size-micro);
+  line-height: 1.3;
+  color: var(--color-text-secondary);
+  font-weight: 400;
+  /* 中文按词/短语换行，禁止单字竖排；最多两行 */
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ask-plan-next-dismiss {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-micro);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-align: left;
+}
+.ask-plan-next-dismiss:hover {
+  color: var(--color-text-secondary);
+}
+.ask-plan-next-dismiss:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
 .ask-inline-bar-custom-input {
   display: flex;
   gap: var(--space-2);
@@ -6588,6 +6708,49 @@ body.ask-bar-active .ask-question-card.pending {
   display: flex;
   gap: var(--space-2);
   align-items: center;
+}
+/* 修改计划：多行输入 + 返回/提交并排，避免只能提交或关掉 */
+.ask-inline-bar-input-area--plan-revise {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.ask-inline-bar-textarea {
+  width: 100%;
+  min-height: 64px;
+  max-height: 120px;
+  height: auto;
+  padding: 8px 10px;
+  resize: vertical;
+  line-height: var(--line-height-body);
+  font-family: var(--font-family-base);
+}
+.ask-inline-bar-input-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.ask-inline-bar-back-btn {
+  height: var(--control-height-lg);
+  padding: 0 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-control);
+  font-family: var(--font-family-base);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ask-inline-bar-back-btn:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
+  background: var(--color-bg-hover);
+}
+.ask-inline-bar-back-btn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
 }
 .ask-inline-bar-input {
   flex: 1;
@@ -11287,6 +11450,16 @@ body.is-composer-resizing .composer-resize-handle::after {
   border: 0;
   border-top: 1px solid var(--color-border-subtle);
 }
+/* SettingSwitch 已自带 border-bottom；其后的表单项只加间距，避免双线 */
+.setting-field--after-switch {
+  margin-top: var(--space-2);
+}
+/* SettingSwitch 后若仍需要分组，用无边框 spacer 代替 divider */
+.setting-spacer {
+  height: var(--space-2);
+  margin: 0;
+  border: 0;
+}
 .setting-field > span,
 .setting-field .ui-field-label {
   color: var(--color-text-secondary);
@@ -11641,6 +11814,11 @@ body.is-composer-resizing .composer-resize-handle::after {
   min-height: 44px;
   margin: 6px 0;
   padding: 0;
+}
+/* 分组小标题（插在 SettingSwitch 之间）：不再额外画线，依赖上一行 switch 的 border-bottom */
+.setting-row--section-label {
+  min-height: 0;
+  margin: 10px 0 2px;
 }
 .setting-row div {
   display: grid;

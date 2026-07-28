@@ -247,7 +247,16 @@ async function askOne(q: NormalizedQuestion, ctx: AskCtx): Promise<Answer> {
 			// 循环：取消「自行输入」后回到选单，而非直接返回
 			while (true) {
 				const selected = await ctx.ui.select(q.question, labels);
-				const chosen = opts.find((o) => optionDisplayText(o) === selected) ?? opts[0];
+				// 用户点叉/取消：桌面端发 value:null 或 cancelled → selected 为 null/undefined。
+				// 绝不能 fallback 到 opts[0]，否则会「取消却答了第一项」。
+				if (selected == null || selected === "") {
+					return { id: q.id, type: q.type, value: null };
+				}
+				const chosen = opts.find((o) => optionDisplayText(o) === selected);
+				if (!chosen) {
+					// 未知返回值也当取消，避免误绑第一项
+					return { id: q.id, type: q.type, value: null };
+				}
 				if (chosen.isOther) {
 					const custom = await ctx.ui.input(`${q.question}（自行输入）`, "");
 					if (custom?.trim()) {

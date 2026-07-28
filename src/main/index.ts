@@ -85,6 +85,7 @@ import { ProjectStore } from "./projects/ProjectStore";
 import { FileSystemService } from "./fs/FileSystemService";
 import { AgentManager } from "./pi/AgentManager";
 import { PiLocator } from "./pi/PiLocator";
+import { PiProcess } from "./pi/PiProcess";
 import { PiRpcClient } from "./pi/PiRpcClient";
 import { testPiProxy } from "./pi/PiProxyTester";
 import { SessionScanner } from "./sessions/SessionScanner";
@@ -3351,7 +3352,7 @@ function registerIpc() {
 	});
 
 	/** 用户通过 UI 响应了扩展的 ask_question 请求，转发给 AgentManager 发送 extension_ui_response */
-	ipcMain.handle(ipcChannels.agentsUiResponse, async (_event, agentId: string, requestId: string, response: { value?: string | boolean; cancelled?: boolean; confirmed?: boolean }) => {
+	ipcMain.handle(ipcChannels.agentsUiResponse, async (_event, agentId: string, requestId: string, response: { value?: string | boolean | null; cancelled?: boolean; confirmed?: boolean }) => {
 		await agentManager.sendUIResponse(agentId, requestId, response);
 	});
 
@@ -3743,6 +3744,10 @@ async function runPostWindowStartupTasks(): Promise<void> {
 		}),
 		applyDesktopProxy(settingsStore.get()).catch((error) => {
 			console.error("Failed to apply desktop proxy:", error);
+		}),
+		// 预热 pi --version 缓存：避免首次创建 Agent 时 trust 路径同步卡住 数秒。
+		PiProcess.warmVersionCache(settingsStore.get()).catch((error) => {
+			console.warn("[PiDeck] Failed to warm pi version cache:", error);
 		}),
 		appLogger.info("app", "Application started", {
 			version: app.getVersion(),

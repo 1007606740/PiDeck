@@ -1043,6 +1043,29 @@ export class AgentManager {
 					lines.push("1. 在终端执行 pi --mode rpc 确认 pi 能否正常启动");
 					lines.push("2. 检查设置中的 pi 路径是否正确");
 				}
+				// 坏扩展/技能是常见根因：引导到开发设置临时禁用后重试，避免用户只反复重启。
+				const startFlags = this.settingsStore.get();
+				const noExt = Boolean(startFlags.piRpcNoExtensions);
+				const noSkills = Boolean(startFlags.piRpcNoSkills);
+				lines.push("");
+				lines.push("━━━ 扩展 / 技能排查 ━━━");
+				if (noExt || noSkills) {
+					lines.push(
+						`当前启动已禁用：${[
+							noExt ? "扩展 (--no-extensions)" : null,
+							noSkills ? "技能 (--no-skills)" : null,
+						]
+							.filter(Boolean)
+							.join("、")}`,
+					);
+					lines.push("若仍失败，更可能是 pi 本体/路径/会话文件问题，而不是扩展加载。");
+				} else {
+					lines.push("若怀疑某个扩展或技能导致启动失败：");
+					lines.push("1. 打开 设置 → 开发设置");
+					lines.push("2. 临时开启「禁用扩展启动」和/或「禁用技能启动」");
+					lines.push("3. 保存后重新启动 Agent 验证");
+					lines.push("若禁用后能启动，再逐个排查 ~/.pi/agent/extensions 与 skills。");
+				}
 				lines.push("");
 				lines.push("如问题持续，可在 GitHub 提交 Issue 并附上以上信息。");
 
@@ -3260,20 +3283,23 @@ export class AgentManager {
 	 * 发送 Extension UI 响应（extension_ui_response）到 pi 的 stdin。
 	 * 同时更新对应卡片消息的状态。
 	 */
-	sendUIResponse(agentId: string, requestId: string, response: { value?: string | boolean; cancelled?: boolean; confirmed?: boolean }) {
+	sendUIResponse(agentId: string, requestId: string, response: { value?: string | boolean | null; cancelled?: boolean; confirmed?: boolean }) {
 		const runtime = this.agents.get(agentId);
 		if (!runtime) return;
 
 		// 写入 extension_ui_response 到 pi 的 stdin
 
+		// 写入 extension_ui_response。
+		// 注意：普通 select 取消应走 value:null（见 abort / 渲染层 respondCancel），
+		// 不要对 select 误发 cancelled:true，否则 pi 返回 undefined，旧 ask 扩展会选第一项。
 		const extPayload: Record<string, unknown> = {
 			type: "extension_ui_response",
 			id: requestId,
-			value: response.value,
 		};
-		// pi 的 ctx.ui.confirm() 检查 confirmed 字段，ctx.ui.select/input 检查 value
+		// value 允许显式 null（取消 select）；undefined 表示字段未提供则不写入。
+		if ("value" in response) extPayload.value = response.value;
+		// pi 的 ctx.ui.confirm() 检查 confirmed 字段
 		if ("confirmed" in response) extPayload.confirmed = response.confirmed;
-		// 取消时发 cancelled: true
 		if (response.cancelled) extPayload.cancelled = true;
 		runtime.process.client.sendRaw(extPayload);
 
