@@ -171,6 +171,7 @@ let previewSettings: AppSettings = {
 	fontFamilyBaseCustom: "",
 	fontFamilyMono: "commit-mono",
 	fontFamilyMonoCustom: "",
+	removedBuiltInExtensions: [],
 	disableUpdateCheck: false,
 };
 
@@ -540,7 +541,8 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 			uninstall: async () => undefined,
 			install: async (_source: string) => "",
-			toggle: async () => undefined,
+			removeBuiltIn: async () => undefined,
+			restoreBuiltIn: async () => undefined,
 			update: async () => ({
 				command: "pi update --extensions --no-approve",
 				output: "Preview mode: extensions update output",

@@ -144,6 +144,7 @@ import {
   UserBubble,
   TurnRow,
   AskQuestionCard,
+  BatchAskInlineBar,
   ExtensionWidgetCard,
   MultiSelectModal,
   WorktreeCreateDialog,
@@ -494,6 +495,18 @@ interface UiRequest {
 	placeholder?: string;
 	prefill?: string;
 	allowOther?: boolean;
+	/** 批量问卷：扩展 envelope 解析后的问题列表 */
+	batchQuestions?: Array<{
+		id: string;
+		type: "select" | "confirm" | "input" | "editor";
+		question: string;
+		options?: Array<string | { label: string; value?: string; description?: string }>;
+		allowOther?: boolean;
+		placeholder?: string;
+		prefill?: string;
+	}>;
+	/** 批量是否强制 Submit 审阅 tab */
+	batchReview?: boolean;
 	completed?: boolean;
 	value?: string;
 	cancelled?: boolean;
@@ -1311,6 +1324,7 @@ export function App() {
     fontFamilyBaseCustom: "",
     fontFamilyMono: "commit-mono",
     fontFamilyMonoCustom: "",
+    removedBuiltInExtensions: [],
     disableUpdateCheck: false,
   });
   /* settingsNotice 已改用 showToast (app-notice) 实现 */
@@ -1828,13 +1842,17 @@ export function App() {
     return ids;
   }, [activeMessages]);
 
-  // 从 activeUiRequest 提取正在进行的交互式请求（select/confirm/input/editor）
+  // 从 activeUiRequest 提取正在进行的交互式请求（select/confirm/input/editor/batch_ask）
   // 这是 ask_question 在 pi RPC 模式下的表现方式：pi 通过 extension_ui_request 将
   // 等待用户回答的对话框发送到桌面端，包含 requestId、title、options 等完整信息。
+  // batch_ask：扩展把整份问卷塞进一次 input envelope，桌面端用 Tab UI 一次答完。
   const activeUiAsk = useMemo(() => {
     if (!activeUiRequest) return undefined;
     return Object.values(activeUiRequest).find(
-      (req) => !req.completed && req.agentId === activeAgentId && ["select", "confirm", "input", "editor"].includes(req.method),
+      (req) =>
+        !req.completed &&
+        req.agentId === activeAgentId &&
+        ["select", "confirm", "input", "editor", "batch_ask"].includes(req.method),
     );
   }, [activeUiRequest, activeAgentId]);
   // dialog 显示条件：仅当有活跃的交互式 UI 请求时
@@ -5471,7 +5489,7 @@ export function App() {
   async function resendUserMessage(message: ChatMessage) {
     if (!activeAgentId || message.agentId !== activeAgentId) return;
     if (resendingIdsRef.current.has(message.id)) return;
-    // 同文件截断重发需要 idle：先删掉该用户消息及其后续，再重新 prompt。
+    // 同文件截断重发需要 idle：只删当前用户消息及其本轮后代，保留更早历史，再重新 prompt。
     if (isAgentBusy || isAgentStarting) {
       showToast(t("message.busyGeneric"), 3000);
       return;
@@ -7606,6 +7624,37 @@ export function App() {
 
         {activeAgent && (
         <footer ref={composerRef} className="composer">
+          {/* 扩展 widget（Todo/Plan）固定在输入框上方，不进消息流、不贴消息区顶部。 */}
+          {activeAgentId && extensionWidgetsByAgent[activeAgentId] && Object.keys(extensionWidgetsByAgent[activeAgentId]).length > 0 && (() => {
+            const entries = Object.entries(extensionWidgetsByAgent[activeAgentId]);
+            const widgetSessionKey = getAgentSessionStorageKey(activeAgent, activeAgentId);
+            const visibleEntries = entries.filter(([key]) =>
+              widgetSessionKey && !(agentDismissedWidgets[widgetSessionKey]?.includes(key))
+            );
+            if (widgetsCollapsed || visibleEntries.length === 0) return null;
+            return (
+              <div className="extension-widgets-container" key="widgets-container">
+                {visibleEntries.map(([widgetKey, widgetLines]) => (
+                  <ExtensionWidgetCard
+                    key={widgetKey}
+                    widgetKey={widgetKey}
+                    lines={widgetLines}
+                    sessionIdOrPath={widgetSessionKey}
+                    onClose={() => {
+                      if (!widgetSessionKey) return;
+                      setAgentDismissedWidgets((prev) => {
+                        const current = prev[widgetSessionKey] ?? [];
+                        if (current.includes(widgetKey)) return prev;
+                        const next = { ...prev, [widgetSessionKey]: [...current, widgetKey] };
+                        saveDismissedExtensionWidgets(next);
+                        return next;
+                      });
+                    }}
+                  />
+                ))}
+              </div>
+            );
+          })()}
           {/* 图片预览作为输入框上方的附件栏,避免占用 textarea 的可输入区域。 */}
           {attachedImages.length > 0 && (
             <div className="image-preview-area">
@@ -7635,34 +7684,6 @@ export function App() {
               </button>
             </div>
           )}
-          {activeAgentId && extensionWidgetsByAgent[activeAgentId] && Object.keys(extensionWidgetsByAgent[activeAgentId]).length > 0 && (() => {
-            const entries = Object.entries(extensionWidgetsByAgent[activeAgentId]);
-            const widgetSessionKey = getAgentSessionStorageKey(activeAgent, activeAgentId);
-            return (
-              <div className="extension-widgets-container" key="widgets-container">
-                {!widgetsCollapsed && entries.filter(([key]) =>
-                  widgetSessionKey && !(agentDismissedWidgets[widgetSessionKey]?.includes(key))
-                ).map(([widgetKey, widgetLines]) => (
-                  <ExtensionWidgetCard
-                    key={widgetKey}
-                    widgetKey={widgetKey}
-                    lines={widgetLines}
-                    sessionIdOrPath={widgetSessionKey}
-                    onClose={() => {
-                      if (!widgetSessionKey) return;
-                      setAgentDismissedWidgets((prev) => {
-                        const current = prev[widgetSessionKey] ?? [];
-                        if (current.includes(widgetKey)) return prev;
-                        const next = { ...prev, [widgetSessionKey]: [...current, widgetKey] };
-                        saveDismissedExtensionWidgets(next);
-                        return next;
-                      });
-                    }}
-                  />
-                ))}
-              </div>
-            );
-          })()}
           {activeQueuedPrompts.length > 0 && activeAgentId && (
             <div
               ref={queuedTrackRef}
@@ -7760,7 +7781,39 @@ export function App() {
               </div>
             </div>
           )}
-          {showAskDialog && activeUiAsk && (
+          {/* 批量 ask（batch_ask）：Tab 标签页问卷 */}
+          {showAskDialog && activeUiAsk && activeUiAsk.method === "batch_ask" && (
+            <BatchAskInlineBar
+              uiRequest={activeUiAsk}
+              activeAgentId={activeAgentId}
+              onCancel={() => {
+                if (activeUiAsk.requestId && activeAgentId) {
+                  setActiveUiRequest((current) => {
+                    if (!current) return null;
+                    const next = { ...current };
+                    delete next[activeUiAsk.requestId];
+                    if (Object.keys(next).length === 0) return null;
+                    return next;
+                  });
+                  api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { cancelled: true });
+                }
+              }}
+              onSubmit={(answersJson: string) => {
+                if (activeUiAsk.requestId && activeAgentId) {
+                  setActiveUiRequest((current) => {
+                    if (!current) return null;
+                    const next = { ...current };
+                    delete next[activeUiAsk.requestId];
+                    if (Object.keys(next).length === 0) return null;
+                    return next;
+                  });
+                  api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: answersJson });
+                }
+              }}
+            />
+          )}
+          {/* 传统单问（select/confirm/input/editor） */}
+          {showAskDialog && activeUiAsk && activeUiAsk.method !== "batch_ask" && (
             <div className="ask-inline-bar">
               <div className="ask-inline-bar-header">
                 <MessageCircle size={14} />
@@ -7801,7 +7854,6 @@ export function App() {
                       className="ask-inline-bar-option ask-inline-bar-option-yes"
                       onClick={() => {
                         if (activeUiAsk.requestId && activeAgentId) {
-                          /* 立即移除，同时发送响应 */
                           setActiveUiRequest((current) => {
                             if (!current) return null;
                             const next = { ...current };
@@ -7835,7 +7887,6 @@ export function App() {
                   </div>
                 ) : activeUiAsk.options && activeUiAsk.options.length > 0 ? (
                   <div className="ask-inline-bar-options">
-                    {/* 过滤掉 Pi 自带的 "✎ 自行输入..." 选项，用下方内联输入框替代 */}
                     {activeUiAsk.options.filter((opt) => {
                       const label = typeof opt === "string" ? opt : String((opt as any).label ?? opt);
                       return !label.startsWith("✎");
@@ -7882,7 +7933,6 @@ export function App() {
                                 if (Object.keys(next).length === 0) return null;
                                 return next;
                               });
-                              /* 保存自定义值到 ref，选择 "✎ 自行输入..." 让 Pi 走 input 流 */
                               pendingCustomInputRef.current = val;
                               api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
                             }
@@ -7903,7 +7953,6 @@ export function App() {
                               if (Object.keys(next).length === 0) return null;
                               return next;
                             });
-                            /* 保存自定义值到 ref，选择 "✎ 自行输入..." 让 Pi 走 input 流 */
                             pendingCustomInputRef.current = val;
                             api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
                           }
@@ -8278,7 +8327,7 @@ export function App() {
           <TerminalDock
             key={terminalDockOwnerKey}
             sessionKey={
-              activeAgentId
+              activeAgentId && !activeAgentId.startsWith("pending-")
                 ? activeAgentId
                 : activeProject?.path
                   ? projectTerminalSessionKey(activeProject.path)

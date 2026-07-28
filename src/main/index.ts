@@ -101,7 +101,7 @@ import { TelemetryService } from "./telemetry/TelemetryService";
 import { PromptManager } from "./prompts/PromptManager";
 import { XuePromptManager } from "./prompts/XuePromptManager";
 import { SkillManager } from "./skills/SkillManager";
-import { ExtensionManager } from "./extensions/ExtensionManager";
+import { BUILT_IN_EXTENSIONS, ExtensionManager } from "./extensions/ExtensionManager";
 import { ProjectResourceManager } from "./projects/ProjectResourceManager";
 import { WebServiceManager } from "./web/WebServiceManager";
 import { preparePreloadPath } from "./preloadPath";
@@ -3093,16 +3093,17 @@ function registerIpc() {
 		void appLogger.info("extension", "Extension installed", { source });
 		return result;
 	});
-	ipcMain.handle(ipcChannels.extensionsToggle, async (_event, source: string, enabled: boolean) => {
-		if (source.startsWith("pi-deck-") && source.endsWith(".ts")) {
-			if (enabled) {
-				// 启用：确保 .ts 文件存在（处理老版本误删文件的恢复场景）
-				await ensurePiDeckExtension(source, activeWslEnvironment?.windowsHome);
-			}
-			// 禁用时不删除 .ts 文件：通过 settings.json 的 disabledExtensions 控制 pi 加载即可
-		}
-		await extensionManager.setEnabled(source, enabled);
-		void appLogger.info("extension", "Extension toggled", { source, enabled });
+	ipcMain.handle(ipcChannels.extensionsRemoveBuiltIn, async (_event, source: string) => {
+		// 移除内置扩展：标记到 PiDeck 设置中，下次启动不再自动部署
+		await extensionManager.removeBuiltIn(source);
+		void appLogger.info("extension", "Built-in extension removed", { source });
+	});
+
+	ipcMain.handle(ipcChannels.extensionsRestoreBuiltIn, async (_event, source: string) => {
+		// 恢复内置扩展：从 PiDeck 移除标记中删除，并确保文件存在
+		await extensionManager.restoreBuiltIn(source);
+		await ensurePiDeckExtension(source, activeWslEnvironment?.windowsHome);
+		void appLogger.info("extension", "Built-in extension restored", { source });
 	});
 	ipcMain.handle(ipcChannels.extensionsUpdate, async () => {
 		const result = await extensionManager.updateExtensions();
@@ -3565,7 +3566,12 @@ app.whenReady().then(async () => {
 	promptManager = new PromptManager();
 	xuePromptManager = new XuePromptManager();
 	skillManager = new SkillManager();
-	extensionManager = new ExtensionManager(piLocator, () => settingsStore.get());
+	extensionManager = new ExtensionManager(
+		piLocator,
+		() => settingsStore.get(),
+		() => settingsStore.get(),
+		(patch) => settingsStore.update(patch),
+	);
 	projectResourceManager = new ProjectResourceManager((projectId) => projectStore.get(projectId));
 	agentManager = new AgentManager(
 		(id) => projectStore.get(id),
@@ -3637,16 +3643,42 @@ app.whenReady().then(async () => {
  * 这些工作不影响首帧可见，但会拖慢 packaged app 的“点击图标 → 窗口出来”。
  */
 async function runPostWindowStartupTasks(): Promise<void> {
-	// 自动部署 PiDeck 内置扩展：这些扩展提供桌面端差异预览、提问卡片和 Plan Mode。
-	// Windows 和 WSL 环境各自部署一份，保证切换 pi 来源后扩展仍然可用。
+	// 自动部署 PiDeck 内置扩展。
+	// 跳过用户已手动移除的，部署策略记录在桌面 settings.json 的 removedBuiltInExtensions 中。
 	const deployExtensionsTo = async (homeDir: string) => {
-		const extDisabledPath = join(homeDir, ".pi", "agent", "settings.json");
-		const disabledExtList: string[] = await readFile(extDisabledPath, "utf-8")
-			.then((raw: string) => JSON.parse(raw).disabledExtensions ?? [])
-			.catch(() => [] as string[]);
-		const disabledBuiltIn = new Set<string>(disabledExtList);
-		for (const extensionName of ["pi-deck-ask-question.ts", "pi-deck-nul-redirect-fix.ts", "pi-deck-plan-mode.ts", "pi-deck-todo.ts"]) {
-			if (disabledBuiltIn.has(extensionName)) continue;
+		// 迁移旧的 pi disabledExtensions 配置到 PiDeck 自有设置
+		try {
+			const piSettingsPath = join(homeDir, ".pi", "agent", "settings.json");
+			const piRaw = await readFile(piSettingsPath, "utf-8").catch(() => "");
+			if (piRaw) {
+				const piSettings = JSON.parse(piRaw) as { disabledExtensions?: string[] };
+				const oldDisabled = piSettings.disabledExtensions ?? [];
+				const piDeckSettings = settingsStore.get();
+				const currentRemoved = new Set(piDeckSettings.removedBuiltInExtensions ?? []);
+				let changed = false;
+				for (const entry of oldDisabled) {
+					if (entry.startsWith("pi-deck-") && !currentRemoved.has(entry)) {
+						currentRemoved.add(entry);
+						changed = true;
+					}
+				}
+				// 清除旧的 pi disabledExtensions 防止重复迁移
+				if (piSettings.disabledExtensions && piSettings.disabledExtensions.length > 0) {
+					piSettings.disabledExtensions = piSettings.disabledExtensions.filter(
+						(s) => !s.startsWith("pi-deck-")
+					);
+					await writeFile(piSettingsPath, JSON.stringify(piSettings, null, 2), "utf-8").catch(() => {});
+				}
+				if (changed) {
+					await settingsStore.update({ removedBuiltInExtensions: [...currentRemoved] });
+				}
+			}
+		} catch {
+			// 迁移失败不影响主流程
+		}
+		const removedBuiltIn = new Set(settingsStore.get().removedBuiltInExtensions ?? []);
+		for (const extensionName of BUILT_IN_EXTENSIONS) {
+			if (removedBuiltIn.has(extensionName)) continue;
 			await ensurePiDeckExtension(extensionName, homeDir).catch((error) => {
 				console.error(`Failed to install ${extensionName}:`, error);
 			});

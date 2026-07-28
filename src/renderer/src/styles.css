@@ -6326,6 +6326,109 @@ body.ask-bar-active .ask-question-card.pending {
   stroke-width: 2.5;
   color: var(--color-success);
 }
+/* 长答案允许换行，避免 fixed height 下文字覆盖错位 */
+.ask-question-card-tool-inner .ask-question-card-answered--wrap {
+  height: auto;
+  min-height: 24px;
+  max-width: 100%;
+  align-items: flex-start;
+  padding: 4px 10px;
+  white-space: normal;
+  word-break: break-word;
+}
+.ask-question-card-tool-inner .ask-question-card-answered--muted {
+  color: var(--color-text-tertiary);
+  font-weight: 500;
+  height: auto;
+  min-height: 24px;
+  padding: 4px 10px;
+}
+.ask-question-card-tool-inner .ask-question-card-answer-text {
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: var(--line-height-caption);
+}
+
+/* 批量问卷结果：问题与答案尽量同一行；任一侧过长时自动换行，不互相覆盖 */
+.ask-question-card-batch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ask-question-card-batch-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 5px 8px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-bg-panel) 70%, transparent);
+}
+.ask-question-card-batch-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-info) 12%, transparent);
+  color: var(--color-info);
+  font-family: var(--font-family-business);
+  font-size: var(--font-size-micro);
+  font-weight: 600;
+  line-height: 1;
+  flex-shrink: 0;
+}
+/* flex-wrap：短内容同行；长问题/长答案各自换行，答案不压到问题上 */
+.ask-question-card-batch-row {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  column-gap: 8px;
+  row-gap: 4px;
+}
+.ask-question-card-batch-q {
+  /* 优先占一行左侧；不够宽时整段换行，而不是和答案挤在一起 */
+  flex: 1 1 12rem;
+  min-width: min(100%, 10rem);
+  max-width: 100%;
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  color: var(--color-text-primary);
+  font-weight: 500;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.ask-question-card-batch-sep {
+  flex: 0 0 auto;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  opacity: 0.7;
+  /* 窄宽度时随答案一起换行，避免单独占一行 */
+  align-self: center;
+}
+.ask-question-card-batch-a {
+  /* 纯文本答案：无边框、无对勾，短时贴右，长时换行 */
+  flex: 1 1 8rem;
+  min-width: min(100%, 6rem);
+  max-width: 100%;
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  color: var(--color-chat-link);
+  font-weight: 600;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.ask-question-card-batch-a--muted {
+  color: var(--color-text-tertiary);
+  font-weight: 500;
+}
 
 /* ask_question 内联栏 - 在当前会话的输入框上方显示，不遮挡其他页面 */
 .ask-inline-bar {
@@ -6735,6 +6838,273 @@ body.ask-bar-active .ask-question-card.pending {
 .ask-question-card-option:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ── 批量 ask Tab 标签页问卷 ── */
+.ask-inline-bar--batch {
+  max-height: 55vh;
+  overflow-y: auto;
+}
+.ask-inline-bar-batch-progress {
+  margin-left: auto;
+  font-size: var(--font-size-micro);
+  color: var(--color-text-tertiary);
+  font-weight: 400;
+}
+.ask-batch-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  margin-bottom: 8px;
+}
+.ask-batch-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-micro);
+  font-family: var(--font-family-base);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s ease;
+}
+.ask-batch-tab:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+.ask-batch-tab.active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+.ask-batch-tab.answered {
+  border-color: var(--color-success);
+}
+.ask-batch-tab.answered.active {
+  border-color: var(--color-accent);
+}
+.ask-batch-tab--review {
+  border-color: var(--color-warning);
+  color: var(--color-warning);
+}
+.ask-batch-tab--review.active {
+  background: color-mix(in srgb, var(--color-warning) 8%, transparent);
+}
+.ask-batch-tab-num {
+  font-family: var(--font-family-business);
+  font-weight: 600;
+  min-width: 14px;
+  text-align: center;
+}
+.ask-batch-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 10ch;
+}
+.ask-batch-tab-check {
+  color: var(--color-success);
+  flex-shrink: 0;
+}
+
+/* 题目区 */
+.ask-batch-question {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ask-batch-question-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ask-batch-question-num {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-business);
+}
+.ask-batch-question-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 编辑器 */
+.ask-batch-editor-area {
+  display: flex;
+  flex-direction: column;
+}
+.ask-batch-textarea {
+  min-height: 80px;
+  resize: vertical;
+  padding: 8px;
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-body);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-panel);
+  color: var(--color-text-primary);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.ask-batch-textarea:focus {
+  border-color: var(--color-accent);
+  box-shadow: var(--focus-ring);
+}
+
+/* 底部分页导航 */
+.ask-batch-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.ask-batch-nav-btn {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  font-family: var(--font-family-base);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.ask-batch-nav-btn:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+.ask-batch-nav-btn.primary {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 500;
+}
+.ask-batch-nav-btn.primary:hover {
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+}
+.ask-batch-nav-spacer {
+  flex: 1;
+}
+
+/* Submit 审阅 Tab */
+.ask-batch-review {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ask-batch-review-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+.ask-batch-review-hint {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-tertiary);
+}
+.ask-batch-review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--color-bg-muted);
+  border-radius: var(--radius-sm);
+}
+.ask-batch-review-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-body);
+}
+.ask-batch-review-num {
+  font-family: var(--font-family-business);
+  color: var(--color-text-tertiary);
+  font-weight: 600;
+  min-width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.ask-batch-review-q {
+  flex: 1;
+  color: var(--color-text-primary);
+  word-break: break-word;
+}
+.ask-batch-review-a {
+  font-family: var(--font-family-business);
+  font-weight: 500;
+  max-width: 30ch;
+  text-align: right;
+  word-break: break-word;
+}
+.ask-batch-review-a.answered {
+  color: var(--color-success);
+}
+.ask-batch-review-a.unanswered {
+  color: var(--color-text-tertiary);
+}
+.ask-batch-review-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-caption);
+  color: var(--color-warning);
+}
+.ask-batch-submit-all-btn {
+  height: 32px;
+  padding: 0 16px;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+  font-size: var(--font-size-control);
+  font-family: var(--font-family-base);
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.12s;
+  align-self: flex-end;
+}
+.ask-batch-submit-all-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ask-batch-submit-all-btn:not(:disabled):hover {
+  opacity: 0.85;
+}
+.ask-batch-submit-all-btn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* 📱 手机竖屏自适应 */
+@media (max-width: 480px) {
+  .ask-batch-tab-label {
+    display: none;
+  }
+  .ask-batch-review-a {
+    max-width: 20ch;
+  }
 }
 
 /* 收起状态工具组里的 skill chip */
@@ -7449,15 +7819,22 @@ body.is-composer-resizing .composer-resize-handle::after {
 .composer-box.plan-mode .composer-bottom-bar {
   border-top-color: color-mix(in srgb, var(--color-brand-blue) 20%, transparent);
 }
+/* 输入框上方的扩展 widget：更矮、更贴输入框；不画外层大边框，避免套一层「面板框」 */
 .extension-widgets-container {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
-  /* 扩展 widget（尤其 Todo/Plan）可能返回大量行；限制总高度，避免展开后把会话区顶到不可见。 */
-  max-height: clamp(96px, 22vh, 220px);
+  gap: 1px;
+  width: 100%;
+  /* 约 5 行 Todo 高度，再高就卡片内滚动 */
+  max-height: min(108px, 16vh);
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 2px;
+  /* composer 默认 gap=8px，这里用负 margin 抵消，最终与输入框只留约 2px 缝 */
+  margin: 0 0 calc(-1 * var(--space-2) + 2px);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
 }
 
 /* 单个 widget 卡片，类似工具卡片样式 */
@@ -7475,8 +7852,8 @@ body.is-composer-resizing .composer-resize-handle::after {
   gap: 4px;
   min-width: 0;
   max-width: min(100%, 56ch);
-  min-height: 28px;
-  padding: 4px 2px 4px 8px;
+  min-height: 20px;
+  padding: 2px 2px 2px 6px;
   border: 0;
   background: transparent;
   color: var(--color-text-secondary);
@@ -7545,18 +7922,18 @@ body.is-composer-resizing .composer-resize-handle::after {
   outline-offset: 1px;
 }
 .extension-widget-card-content {
-  /* 扩展内容按“可见行数”限高：Todo 项一多时只展示前 N 行，剩余内容在卡片内部滚动，避免遮挡输入区。 */
-  --extension-widget-visible-lines: 8;
-  --extension-widget-line-height: 20px;
-  padding: 0 8px 6px 8px;
+  /* 扩展内容按"可见行数"限高：默认只露约 5 行，多出来的在卡片内滚动，给输入框腾空间。 */
+  --extension-widget-visible-lines: 5;
+  --extension-widget-line-height: 15px;
+  padding: 0 6px 2px 6px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   min-height: 0;
   max-height: calc(
     var(--extension-widget-visible-lines) *
       var(--extension-widget-line-height) +
-      (var(--extension-widget-visible-lines) - 1) * 2px
+      (var(--extension-widget-visible-lines) - 1) * 1px
   );
   overflow-y: auto;
   overscroll-behavior: contain;

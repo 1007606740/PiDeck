@@ -92,6 +92,10 @@ Gitmoji 对应关系：
   petPatrolPauseMin: 5,
   favoriteModels: [],
 
+  // ── 扩展管理 ──
+  /** 用户手动移除的内置扩展，启动时跳过自动部署 */
+  removedBuiltInExtensions: [],
+
   // ── 更新检测：默认正常检测，用户可手动关闭忽略更新 ──
   disableUpdateCheck: false,
 

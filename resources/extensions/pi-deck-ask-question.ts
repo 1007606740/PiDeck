@@ -7,7 +7,8 @@
  *
  * 两种用法：
  *   1. 单问题模式（向后兼容）：顶层 type/question/options/placeholder/prefill/allowOther
- *   2. 批量模式：questions 数组，串行提问，一次性返回所有答案
+ *   2. 批量模式：questions 数组；桌面端以 Tab 标签页一次展示全部问题
+ *      （RPC 只能串行 dialog，因此批量走一次 input envelope，由桌面端展开为 Tab UI）
  *
  * select 选项支持字符串或 {label, value?, description?} 对象；description 会拼进选项
  * 显示文本，让用户在桌面端按钮上直接看到说明。allowOther（默认 true）由扩展层在
@@ -65,6 +66,14 @@ interface AskCtx {
 	};
 }
 
+/**
+ * 批量 envelope 协议标记。
+ * RPC 只支持串行 select/confirm/input/editor，无法一次弹多个 dialog。
+ * 批量时用一次 input，title 放 JSON envelope；桌面端识别后渲染 Tab 问卷，
+ * 最终把全部答案 JSON 字符串作为 value 回传，扩展再解析。
+ */
+export const BATCH_ASK_ENVELOPE_KEY = "__piDeckBatchAsk";
+
 // allowOther 追加项的固定文案；选中后触发 ctx.ui.input 收集自定义答案
 const OTHER_LABEL = "✎ 自行输入...";
 
@@ -96,6 +105,13 @@ const AskQuestionParams = Type.Object({
 		Type.Array(QuestionSchema, {
 			description:
 				"Multiple questions to ask in sequence (batch mode). When provided, the single-question fields below are ignored.",
+		}),
+	),
+	// 审阅模式：批量模式下全部回答后进入 Submit tab 汇总确认，防误提交
+	review: Type.Optional(
+		Type.Boolean({
+			description:
+				"When true and in batch mode, shows a Submit/review tab of all answers for user confirmation before submitting. Default false.",
 		}),
 	),
 	// 单问题模式（向后兼容）
@@ -169,11 +185,14 @@ function toQuestions(params: Record<string, unknown>): NormalizedQuestion[] {
 
 /** 单问题结果：保持 {question,type,answer,answered} 结构，兼容历史会话反推 */
 function singleResult(q: NormalizedQuestion, a: Answer, cancelled: boolean) {
+	const answered = !cancelled && a.value !== null && a.value !== undefined;
 	return {
 		content: [
 			{
 				type: "text" as const,
-				text: cancelled ? `用户取消了提问: ${q.question}` : `用户回答: ${typeof a.value === "boolean" ? (a.value ? "是" : "否") : String(a.value ?? "")}`,
+				text: cancelled
+					? `用户取消了提问: ${q.question}`
+					: `用户回答: ${typeof a.value === "boolean" ? (a.value ? "是" : "否") : String(a.value ?? "")}`,
 			},
 		],
 		details: {
@@ -181,7 +200,8 @@ function singleResult(q: NormalizedQuestion, a: Answer, cancelled: boolean) {
 			type: q.type,
 			answer: cancelled ? null : a.value,
 			answerLabel: a.label,
-			answered: !cancelled && a.value !== null,
+			// 显式写 answered，避免桌面端把 undefined 当成「未回答」
+			answered,
 			options: q.options,
 			...(cancelled ? { cancelled: true } : {}),
 		},
@@ -256,6 +276,43 @@ async function askOne(q: NormalizedQuestion, ctx: AskCtx): Promise<Answer> {
 	}
 }
 
+/**
+ * 批量：一次 envelope 交给桌面端 Tab UI。
+ * 回传 value 为 JSON：{ cancelled?: true, answers: Answer[] }
+ * 解析失败或用户取消 → cancelled。
+ */
+async function askBatch(
+	questions: NormalizedQuestion[],
+	review: boolean,
+	ctx: AskCtx,
+): Promise<{ answers: Answer[]; cancelled: boolean }> {
+	// title 放 envelope；placeholder 给桌面端兜底文案（非 JSON 客户端会当普通 input）
+	const envelope = JSON.stringify({
+		[BATCH_ASK_ENVELOPE_KEY]: 1,
+		review: review === true,
+		questions,
+	});
+	const raw = await ctx.ui.input(envelope, "__piDeckBatchAsk__");
+	if (typeof raw !== "string" || !raw.trim()) {
+		return { answers: [], cancelled: true };
+	}
+	try {
+		const parsed = JSON.parse(raw) as {
+			cancelled?: boolean;
+			answers?: Answer[];
+		};
+		if (parsed.cancelled) return { answers: parsed.answers ?? [], cancelled: true };
+		const answers = Array.isArray(parsed.answers) ? parsed.answers : [];
+		// 至少要有与问题等量的有效答案，否则视为取消/半完成
+		const complete =
+			answers.length >= questions.length &&
+			answers.every((a) => a && a.value !== null && a.value !== undefined);
+		return { answers, cancelled: !complete };
+	} catch {
+		return { answers: [], cancelled: true };
+	}
+}
+
 export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "ask_question",
@@ -264,7 +321,8 @@ export default function (pi: ExtensionAPI) {
 			"Ask the user to provide input, make a selection, or confirm an action.",
 			"The tool blocks until the user responds through the desktop UI.",
 			"Single question: use type/question/options/placeholder/prefill.",
-			"Multiple questions: use questions:[{id,type,question,options,allowOther,...}] to ask in sequence and get all answers at once.",
+			"Multiple questions: use questions:[{id,type,question,options,allowOther,...}] to ask all at once in a tabbed batch UI.",
+			"For batch mode, set review:true to require a Submit/review tab before final submit (prevents accidental submit).",
 		].join(" "),
 		promptSnippet: "Ask the user a question (or a batch of questions) and wait for responses",
 		promptGuidelines: [
@@ -272,8 +330,9 @@ export default function (pi: ExtensionAPI) {
 			"Use type:select with options when the user should pick from predefined choices. Options may be strings or {label, value?, description?} objects; use description to explain long options.",
 			"Use type:confirm when you need a yes/no decision before proceeding (e.g. destructive operations, irreversible changes).",
 			"Use type:input for short free-text responses, and type:editor for multi-line content like code or long explanations.",
-			"For multiple related questions, pass a questions array instead of calling the tool repeatedly — this collects all answers in one interaction.",
+			"For multiple related questions, pass a questions array instead of calling the tool repeatedly — desktop shows a tabbed batch UI and returns all answers at once.",
 			"Set allowOther:false on a select question to forbid custom input (default true).",
+			"For batch questions, set review:true to force a Submit review tab so the user confirms all answers before submitting.",
 		],
 		parameters: AskQuestionParams,
 
@@ -317,20 +376,23 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 
-			const answers: Answer[] = [];
-			for (const q of questions) {
+			// 批量：一次 envelope → 桌面 Tab UI（含可选 Submit 审阅）
+			if (isBatch) {
 				try {
-					answers.push(await askOne(q, ctx));
+					const { answers, cancelled } = await askBatch(questions, record.review === true, ctx);
+					return batchResult(questions, answers, cancelled);
 				} catch {
-					// 用户取消（框架层抛出）：中断剩余问题，返回已收集答案
-					return isBatch
-						? batchResult(questions, answers, true)
-						: singleResult(q, { id: q.id, type: q.type, value: null }, true);
+					return batchResult(questions, [], true);
 				}
 			}
 
-			if (isBatch) return batchResult(questions, answers, false);
-			return singleResult(questions[0], answers[0], false);
+			// 单问题：保持原有 select/confirm/input/editor 串行协议
+			try {
+				const answer = await askOne(questions[0], ctx);
+				return singleResult(questions[0], answer, false);
+			} catch {
+				return singleResult(questions[0], { id: questions[0].id, type: questions[0].type, value: null }, true);
+			}
 		},
 	});
 }

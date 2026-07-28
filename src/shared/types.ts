@@ -425,6 +425,10 @@ export type AppSettings = {
 	 */
 	sidebarExpandedProjectIds?: string[];
 
+	// ── 扩展管理 ──
+	/** 用户手动移除的内置扩展列表（如 pi-deck-todo.ts），下次启动不再自动部署。 */
+	removedBuiltInExtensions: string[];
+
 };
 
 // ── 桌面宠物类型 ──
@@ -821,6 +825,8 @@ export type PiPackageInfo = {
 export type PiExtensionListResult = {
 	extensions: PiExtensionSummary[];
 	raw: string;
+	/** 检测到的扩展冲突：内置扩展因与三方扩展同名而被自动禁用 */
+	conflicts?: { builtIn: string; thirdParty: string }[];
 };
 
 export type PiCliUpdateResult = {

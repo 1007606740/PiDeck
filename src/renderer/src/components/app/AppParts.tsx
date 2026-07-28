@@ -65,6 +65,7 @@ import {
 	ChevronRight,
 	ChevronsUpDown,
 	ChevronUp,
+	ClipboardList,
 	MoveDown,
 	MoveUp,
 	ChevronsDownUp,
@@ -574,6 +575,9 @@ export function ExtensionWidgetCard(props: {
 	const storageKey = props.sessionIdOrPath
 		? `${EXTENSION_WIDGET_COLLAPSED_KEY_PREFIX}${props.sessionIdOrPath}:${props.widgetKey}`
 		: `${EXTENSION_WIDGET_COLLAPSED_KEY_PREFIX}${props.widgetKey}`;
+	// 将非人类可读的 widget key 映射为友好展示名
+	const widgetLabel =
+		({ "pi-deck-todo": "TODO", "pi-deck-plan-todos": "Plan" } as Record<string, string>)[props.widgetKey] ?? props.widgetKey;
 	const [expanded, setExpanded] = useState(() => {
 		if (typeof window === "undefined") return true;
 		const stored = localStorage.getItem(storageKey);
@@ -609,7 +613,7 @@ export function ExtensionWidgetCard(props: {
 						size={14}
 						className={`extension-widget-card-chevron${expanded ? " open" : ""}`}
 					/>
-					<span className="extension-widget-card-title">{props.widgetKey}</span>
+					<span className="extension-widget-card-title">{widgetLabel}</span>
 				</button>
 				<button
 					className="extension-widget-card-close"
@@ -1962,6 +1966,14 @@ function getToolKindLabel(toolName: string): string {
 }
 
 /** 单个工具调用卡片：trigger 行（图标+工具名+副标题+状态+耗时）+ 展开后详情。 */
+/** 格式化 ask 答案展示：长文本可换行，避免 fixed height 下覆盖错位 */
+function formatAskAnswerText(answer: unknown, answerLabel?: string): string {
+	if (typeof answerLabel === "string" && answerLabel.trim()) return answerLabel;
+	if (typeof answer === "boolean") return answer ? t("common.true") : t("common.false");
+	if (answer == null) return t("ask.answered");
+	return String(answer);
+}
+
 export const ToolCard = memo(function ToolCard(props: {
 	message: ChatMessage;
 	defaultOpen?: boolean;
@@ -1983,11 +1995,30 @@ export const ToolCard = memo(function ToolCard(props: {
 	// 模型用 read 工具读取 SKILL.md 来加载 skill：识别后以 skill 徽标样式渲染
 	const skillName = getReadSkillName(props.message);
 	const isSkillRead = Boolean(skillName);
-	// 历史会话中从 ask_question 工具结果反推的提问卡片数据
+	// 历史/实时会话中从 ask_question 工具结果反推的提问卡片数据
+	// items 存在时为批量问卷：逐题展示答案，避免只显示第一题像「未回答」
 	const askCard = props.message.meta?._askCard as
-		| { question?: string; type?: string; answered?: boolean; answer?: unknown; answerLabel?: string; options?: string[] }
+		| {
+				question?: string;
+				type?: string;
+				answered?: boolean;
+				answer?: unknown;
+				answerLabel?: string;
+				options?: unknown[];
+				cancelled?: boolean;
+				items?: Array<{
+					id?: string;
+					question?: string;
+					type?: string;
+					answered?: boolean;
+					answer?: unknown;
+					answerLabel?: string;
+					options?: unknown[];
+					wasCustom?: boolean;
+				}>;
+		  }
 		| undefined;
-	const isAskCard = Boolean(askCard?.question);
+	const isAskCard = Boolean(askCard?.question) || Boolean(askCard?.items?.length);
 	// 运行中显示 "运行中"，出错显示 "错误"，完成后不显示状态文本
 const statusLabel =
 	status === "running"
@@ -2037,9 +2068,19 @@ const statusLabel =
 							{formatDuration(durationMs)}
 						</span>
 					)}
-					{isAskCard && askCard?.question ? (
-						<span className="tool-card-subtitle" title={askCard.question}>
-							| {askCard.question}
+					{isAskCard && askCard ? (
+						<span
+							className="tool-card-subtitle"
+							title={
+								Array.isArray(askCard.items) && askCard.items.length > 0
+									? t("ask.batchTitle", { count: String(askCard.items.length) })
+									: (askCard.question ?? "")
+							}
+						>
+							|{" "}
+							{Array.isArray(askCard.items) && askCard.items.length > 0
+								? t("ask.batchTitle", { count: String(askCard.items.length) })
+								: askCard.question}
 						</span>
 					) : subtitle ? (
 						<span className="tool-card-subtitle" title={subtitle}>
@@ -2062,52 +2103,72 @@ const statusLabel =
 				<div className="tool-card-content">
 					{isAskCard && askCard ? (
 						<div className="ask-question-card-tool-inner">
-							<div className="ask-question-card-title"><MessageCircle size={13} />{askCard.question}</div>
-							{askCard.options && askCard.options.length > 0 && (
-								<div className="ask-question-card-options-list">
-									{askCard.options.map((opt, i) => {
-										const optLabel = typeof opt === "string" ? opt : (opt as any).label ?? String((opt as any).value ?? "");
-										const optValue = typeof opt === "string" ? opt : String((opt as any).value ?? optLabel);
-										const desc = typeof opt === "object" ? (opt as any).description : undefined;
-										const isSelected = askCard.answered && (optLabel === askCard.answerLabel || optValue === askCard.answer);
+							{/* 批量：问题与答案尽量同一行；任一侧过长时自动换行，不互相覆盖 */}
+							{Array.isArray(askCard.items) && askCard.items.length > 0 ? (
+								<div className="ask-question-card-batch-list">
+									{askCard.items.map((item, idx) => {
+										const answerText = formatAskAnswerText(item.answer, item.answerLabel);
 										return (
-											<div key={i} className={`ask-question-card-option-item${isSelected ? " selected" : ""}`}>
-												<span className="ask-question-card-option-selector">{isSelected ? "✓" : ""}</span>
-												<div className="ask-question-card-option-text">
-													<span className="ask-question-card-option-label">{optLabel}</span>
-													{desc && <span className="ask-question-card-option-desc">{desc}</span>}
+											<div key={item.id ?? idx} className="ask-question-card-batch-item">
+												<span className="ask-question-card-batch-num" aria-hidden="true">
+													{idx + 1}
+												</span>
+												<div className="ask-question-card-batch-row">
+													<span className="ask-question-card-batch-q" title={item.question || item.id}>
+														{item.question || item.id}
+													</span>
+													<span className="ask-question-card-batch-sep" aria-hidden="true">
+														→
+													</span>
+													{item.answered ? (
+														<span className="ask-question-card-batch-a" title={answerText}>
+															{answerText}
+														</span>
+													) : (
+														<span className="ask-question-card-batch-a ask-question-card-batch-a--muted">
+															{askCard.cancelled ? t("ask.cancelled") : t("ask.unanswered")}
+														</span>
+													)}
 												</div>
 											</div>
 										);
 									})}
 								</div>
-							)}
-							{askCard.answered && (!askCard.options || askCard.options.length === 0) ? (
-								<div className="ask-question-card-answered">
-									<Check size={14} className="ask-question-card-answered-ok" />
-									<span className="ask-question-card-answer-text">
-										{askCard.answerLabel ?? (
-											typeof askCard.answer === "string" ? askCard.answer :
-											typeof askCard.answer === "boolean" ? (askCard.answer ? t("common.true") : t("common.false")) :
-											t("ask.answered")
-										)}
-									</span>
-								</div>
-							) : askCard.answered ? (
-								<div className="ask-question-card-answered">
-									<Check size={14} className="ask-question-card-answered-ok" />
-									<span className="ask-question-card-answer-text">
-										{askCard.answerLabel ?? (
-											typeof askCard.answer === "string" ? askCard.answer :
-											typeof askCard.answer === "boolean" ? (askCard.answer ? t("common.true") : t("common.false")) :
-											t("ask.answered")
-										)}
-									</span>
-								</div>
 							) : (
-								<div className="ask-question-card-answered" style={{ color: "var(--color-text-tertiary)" }}>
-									{t("ask.unanswered")}
-								</div>
+								<>
+									<div className="ask-question-card-title"><MessageCircle size={13} />{askCard.question}</div>
+									{askCard.options && askCard.options.length > 0 && (
+										<div className="ask-question-card-options-list">
+											{askCard.options.map((opt, i) => {
+												const optLabel = typeof opt === "string" ? opt : (opt as any).label ?? String((opt as any).value ?? "");
+												const optValue = typeof opt === "string" ? opt : String((opt as any).value ?? optLabel);
+												const desc = typeof opt === "object" && opt ? (opt as any).description : undefined;
+												const isSelected = Boolean(askCard.answered) && (optLabel === askCard.answerLabel || optValue === askCard.answer);
+												return (
+													<div key={i} className={`ask-question-card-option-item${isSelected ? " selected" : ""}`}>
+														<span className="ask-question-card-option-selector">{isSelected ? "✓" : ""}</span>
+														<div className="ask-question-card-option-text">
+															<span className="ask-question-card-option-label">{optLabel}</span>
+															{desc && <span className="ask-question-card-option-desc">{desc}</span>}
+														</div>
+													</div>
+												);
+											})}
+										</div>
+									)}
+									{askCard.answered ? (
+										<div className="ask-question-card-answered ask-question-card-answered--wrap">
+											<Check size={14} className="ask-question-card-answered-ok" />
+											<span className="ask-question-card-answer-text">
+												{formatAskAnswerText(askCard.answer, askCard.answerLabel)}
+											</span>
+										</div>
+									) : (
+										<div className="ask-question-card-answered" style={{ color: "var(--color-text-tertiary)" }}>
+											{t("ask.unanswered")}
+										</div>
+									)}
+								</>
 							)}
 						</div>
 					) : (
@@ -2436,6 +2497,351 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 				)}
 			</div>
 		</article>
+	);
+});
+
+/**
+ * 批量 ask 内联栏：Tab 标签页问卷 + Submit 审阅防误提。
+ * 扩展通过一次 input envelope 下发全部问题，桌面端在此处渲染完整的 Tab 交互。
+ */
+export const BatchAskInlineBar = memo(function BatchAskInlineBar(props: {
+	uiRequest: {
+		requestId: string;
+		title: string;
+		batchQuestions?: Array<{
+			id: string;
+			type: "select" | "confirm" | "input" | "editor";
+			question: string;
+			options?: Array<string | { label: string; value?: string; description?: string }>;
+			allowOther?: boolean;
+			placeholder?: string;
+			prefill?: string;
+		}>;
+		batchReview?: boolean;
+	};
+	activeAgentId?: string;
+	onCancel: () => void;
+	onSubmit: (answersJson: string) => void;
+}) {
+	const { uiRequest } = props;
+	const questions = uiRequest.batchQuestions ?? [];
+	const totalQ = questions.length;
+
+	// 逐题临时答案
+	const [answers, setAnswers] = useState<Record<string, string | boolean | null>>(
+		() => {
+			const init: Record<string, string | boolean | null> = {};
+			for (const q of questions) init[q.id] = null;
+			return init;
+		},
+	);
+	const [answeredLookup, setAnsweredLookup] = useState<Record<string, boolean>>({});
+	const [currentTab, setCurrentTab] = useState(0);
+	const [inputValues, setInputValues] = useState<Record<string, string>>({});
+
+	// 当前题目
+	const currentQ = questions[currentTab];
+
+	const isReviewTab = currentTab === totalQ;
+
+	// 更新答案
+	const setAnswer = (id: string, value: string | boolean | null) => {
+		setAnswers((prev) => ({ ...prev, [id]: value }));
+		setAnsweredLookup((prev) => ({
+			...prev,
+			[id]: value !== null && value !== undefined,
+		}));
+	};
+
+	const answeredCount = Object.values(answeredLookup).filter(Boolean).length;
+	const allAnswered = answeredCount >= totalQ;
+
+	// 提交：序列化为扩展能解析的 JSON
+	const handleSubmit = () => {
+		const result = questions.map((q) => ({
+			id: q.id,
+			type: q.type,
+			value: answers[q.id] ?? null,
+			label:
+				typeof answers[q.id] === "boolean"
+					? answers[q.id]
+						? "是"
+						: "否"
+					: String(answers[q.id] ?? ""),
+			wasCustom: false,
+		}));
+		props.onSubmit(JSON.stringify({ answers: result }));
+	};
+
+	// 未提醒：去审阅 tab
+	const goToReview = () => setCurrentTab(totalQ);
+
+	if (totalQ === 0) {
+		return (
+			<div className="ask-inline-bar">
+				<div className="ask-inline-bar-header">
+					<MessageCircle size={14} />
+					<span>{uiRequest.title || t("ask.batchTitle", { count: "0" })}</span>
+					<button className="ask-inline-bar-close" onClick={props.onCancel} aria-label={t("common.cancel")}>
+						<X size={14} />
+					</button>
+				</div>
+				<div className="ask-inline-bar-question">{t("ask.cancelled")}</div>
+			</div>
+		);
+	}
+
+	return (
+		<div className="ask-inline-bar ask-inline-bar--batch">
+			{/* 标题行：进度 + 关闭 */}
+			<div className="ask-inline-bar-header">
+				<MessageCircle size={14} />
+				<span>{uiRequest.title || t("ask.batchTitle", { count: String(totalQ) })}</span>
+				<span className="ask-inline-bar-batch-progress">
+					{t("ask.batchProgress", { done: String(answeredCount), total: String(totalQ) })}
+				</span>
+				<button
+					className="ask-inline-bar-close"
+					onClick={props.onCancel}
+					aria-label={t("common.cancel")}
+				>
+					<X size={14} />
+				</button>
+			</div>
+
+			{/* 顶部 Tab 条 */}
+			<div className="ask-batch-tabs" role="tablist">
+				{questions.map((q, i) => {
+					const isActive = i === currentTab;
+					const isAnswered = answeredLookup[q.id] === true;
+					return (
+						<button
+							key={q.id}
+							role="tab"
+							aria-selected={isActive}
+							className={`ask-batch-tab${isActive ? " active" : ""}${isAnswered ? " answered" : ""}`}
+							onClick={() => setCurrentTab(i)}
+						>
+							<span className="ask-batch-tab-num">{i + 1}</span>
+							<span className="ask-batch-tab-label">{q.question.slice(0, 16)}</span>
+							{isAnswered && <Check size={10} className="ask-batch-tab-check" />}
+						</button>
+					);
+				})}
+				{/* Submit 审阅 Tab */}
+				{uiRequest.batchReview && (
+					<button
+						key="__review__"
+						role="tab"
+						aria-selected={isReviewTab}
+						className={`ask-batch-tab ask-batch-tab--review${isReviewTab ? " active" : ""}`}
+						onClick={goToReview}
+					>
+						<ClipboardList size={12} />
+						<span className="ask-batch-tab-label">{t("ask.batchReviewTab")}</span>
+					</button>
+				)}
+			</div>
+
+			{/* 题目内容区 */}
+			<div className="ask-inline-bar-body">
+				{isReviewTab ? (
+					/* Submit 审阅 Tab */
+					<div className="ask-batch-review">
+						<div className="ask-batch-review-title">
+							<ClipboardList size={16} />
+							{t("ask.batchReviewTitle")}
+						</div>
+						<div className="ask-batch-review-hint">{t("ask.batchReviewHint")}</div>
+						<div className="ask-batch-review-list">
+							{questions.map((q, i) => {
+								const val = answers[q.id];
+								const isAns = answeredLookup[q.id] === true;
+								return (
+									<div key={q.id} className="ask-batch-review-item">
+										<span className="ask-batch-review-num">{i + 1}</span>
+										<span className="ask-batch-review-q">{q.question}</span>
+										<span className={`ask-batch-review-a${isAns ? " answered" : " unanswered"}`}>
+											{isAns
+												? typeof val === "boolean"
+													? val
+														? "✅ " + t("common.true")
+														: "❌ " + t("common.false")
+													: String(val)
+												: "—"}
+										</span>
+									</div>
+								);
+							})}
+						</div>
+						{!allAnswered && (
+							<div className="ask-batch-review-warning">
+								<AlertTriangle size={14} />
+								{t("ask.batchIncomplete")}
+							</div>
+						)}
+						<button
+							className="ask-batch-submit-all-btn"
+							disabled={!allAnswered}
+							onClick={handleSubmit}
+						>
+							{t("ask.batchSubmitAll")}
+						</button>
+					</div>
+				) : currentQ ? (
+					<div className="ask-batch-question">
+						<div className="ask-batch-question-header">
+							<span className="ask-batch-question-num">
+								{t("common.details")} {currentTab + 1}/{totalQ}
+							</span>
+						</div>
+						<div className="ask-inline-bar-question">{currentQ.question}</div>
+						<div className="ask-batch-question-body">
+							{currentQ.type === "confirm" ? (
+								<div className="ask-inline-bar-options ask-inline-bar-options-confirm">
+									<button
+										className={`ask-inline-bar-option ask-inline-bar-option-yes${answers[currentQ.id] === true ? " selected" : ""}`}
+										onClick={() => setAnswer(currentQ.id, true)}
+									>
+										{t("common.true")}
+									</button>
+									<button
+										className={`ask-inline-bar-option ask-inline-bar-option-no${answers[currentQ.id] === false ? " selected" : ""}`}
+										onClick={() => setAnswer(currentQ.id, false)}
+									>
+										{t("common.false")}
+									</button>
+								</div>
+							) : currentQ.type === "select" && currentQ.options && currentQ.options.length > 0 ? (
+								<>
+									<div className="ask-inline-bar-options">
+										{currentQ.options.map((opt, i) => {
+											const optLabel =
+												typeof opt === "string" ? opt : opt.label ?? String(opt.value ?? "");
+											const optVal =
+												typeof opt === "string" ? opt : String(opt.value ?? optLabel);
+											const isSelected = answers[currentQ.id] === optVal;
+											return (
+												<button
+													key={i}
+													className={`ask-inline-bar-option${isSelected ? " selected" : ""}`}
+													onClick={() => setAnswer(currentQ.id, optVal)}
+												>
+													<span className="ask-inline-bar-option-marker">{optLabel}</span>
+												</button>
+											);
+										})}
+									</div>
+									{currentQ.allowOther !== false && (
+										<div className="ask-inline-bar-custom-input">
+											<input
+												className="ask-inline-bar-custom-field"
+												placeholder={currentQ.placeholder || t("ask.customPlaceholder")}
+												value={inputValues[currentQ.id] ?? ""}
+												onChange={(e) =>
+													setInputValues((prev) => ({
+														...prev,
+														[currentQ.id]: e.target.value,
+													}))
+												}
+												onKeyDown={(e) => {
+													if (e.key === "Enter") {
+														const v = (e.target as HTMLInputElement).value.trim();
+														if (v) setAnswer(currentQ.id, v);
+													}
+												}}
+											/>
+											<button
+												className="ask-inline-bar-submit-btn"
+												onClick={() => {
+													const v = inputValues[currentQ.id]?.trim();
+													if (v) setAnswer(currentQ.id, v);
+												}}
+											>
+												{t("common.submit")}
+											</button>
+										</div>
+									)}
+								</>
+							) : currentQ.type === "editor" ? (
+								<div className="ask-batch-editor-area">
+									<textarea
+										className="ask-inline-bar-input ask-batch-textarea"
+										placeholder={currentQ.placeholder || t("ask.editorPlaceholder")}
+										value={inputValues[currentQ.id] ?? (currentQ.prefill ?? "")}
+										onChange={(e) =>
+											setInputValues((prev) => ({
+												...prev,
+												[currentQ.id]: e.target.value,
+											}))
+										}
+										onBlur={(e) => {
+											if (e.target.value.trim()) setAnswer(currentQ.id, e.target.value);
+										}}
+									/>
+								</div>
+							) : (
+								<div className="ask-inline-bar-input-area">
+									<input
+										className="ask-inline-bar-input"
+										placeholder={currentQ.placeholder || t("ask.inputPlaceholder")}
+										value={inputValues[currentQ.id] ?? ""}
+										onChange={(e) =>
+											setInputValues((prev) => ({
+												...prev,
+												[currentQ.id]: e.target.value,
+											}))
+										}
+										onKeyDown={(e) => {
+											if (e.key === "Enter") {
+												const v = (e.target as HTMLInputElement).value.trim();
+												if (v) setAnswer(currentQ.id, v);
+											}
+										}}
+									/>
+									<button
+										className="ask-inline-bar-submit-btn"
+										onClick={() => {
+											const v = inputValues[currentQ.id]?.trim();
+											if (v) setAnswer(currentQ.id, v);
+										}}
+									>
+										{t("common.submit")}
+									</button>
+								</div>
+							)}
+						</div>
+
+						{/* 底部分页按钮 */}
+						<div className="ask-batch-nav">
+							{currentTab > 0 && (
+								<button
+									className="ask-batch-nav-btn"
+									onClick={() => setCurrentTab(currentTab - 1)}
+								>
+									{t("ask.batchPrev")}
+								</button>
+							)}
+							<div className="ask-batch-nav-spacer" />
+							{currentTab < totalQ - 1 ? (
+								<button
+									className="ask-batch-nav-btn primary"
+									onClick={() => setCurrentTab(currentTab + 1)}
+								>
+									{t("ask.batchNext")}
+								</button>
+							) : (
+								<button className="ask-batch-nav-btn primary" onClick={goToReview}>
+									{t("ask.batchGoReview")}
+								</button>
+							)}
+						</div>
+					</div>
+				) : (
+					<div className="ask-inline-bar-question">{t("ask.cancelled")}</div>
+				)}
+			</div>
+		</div>
 	);
 });
 
