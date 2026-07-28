@@ -34,7 +34,6 @@ import {
   ListChecks,
   Paperclip,
   Minus,
-  FolderOpen,
   FolderCog,
   FolderPlus,
   Globe,
@@ -52,16 +51,20 @@ import {
   Copy,
   X,
   PanelLeft,
+  PanelRight,
 } from "lucide-react";
-import { subscribeToNotice, showNotice } from "./utils/notice";
+import { showNotice } from "./utils/notice";
 import { createPreviewApi } from "./previewApi";
 import { createBrowserApi } from "./browserApi";
 const ConfigModal = lazy(() => import("./ConfigModal").then((m) => ({ default: m.ConfigModal })));
+import { isTextFile } from "./utils/isTextFile";
 import { TrustConfirmModal } from "./components/app/TrustConfirmModal";
 import { TerminalDock } from "./components/terminal/TerminalDock";
 import { FeishuLinkIndicator } from "./components/feishu/FeishuLinkIndicator";
 import { useFeishuBridge } from "./hooks/useFeishuBridge";
 import { CloseIconButton } from "./components/ui/IconButton";
+import { writeClipboard } from "./utils/clipboard";
+import { Toaster } from "./components/ui/sonner";
 import { THINKING_LEVELS } from "./components/app/AppParts";
 import {
   buildComposerPromptSubmission,
@@ -124,6 +127,7 @@ import {
   ConfirmDialog,
   ImagePreviewModal,
   BrandLockup,
+  AgentStatusIndicator,
   LogoMark,
   ModelPicker,
   PromptTemplatePicker,
@@ -140,7 +144,11 @@ import {
   UserBubble,
   TurnRow,
   AskQuestionCard,
+  BatchAskInlineBar,
   ExtensionWidgetCard,
+  MERGED_TASK_WIDGET_KEY,
+  PLAN_WIDGET_KEY,
+  TODO_WIDGET_KEY,
   MultiSelectModal,
   WorktreeCreateDialog,
   stripMarkdown,
@@ -168,10 +176,12 @@ import {
   type MessageItem,
 } from "./components/app/AppUtils";
 import {
+	formatFilePathRef,
 	getCaretOffset as getCaretOffsetOf,
 	getRichInputCaretCoords,
 	parseRichInputChips,
 	RichInput,
+	unwrapFileChipPath,
 	type RichInputChip,
 } from "./components/app/RichInput";
 // 懒加载：Monaco Editor（~17.6MB Web Worker）仅在用户打开 diff 时才加载
@@ -490,6 +500,18 @@ interface UiRequest {
 	placeholder?: string;
 	prefill?: string;
 	allowOther?: boolean;
+	/** 批量问卷：扩展 envelope 解析后的问题列表 */
+	batchQuestions?: Array<{
+		id: string;
+		type: "select" | "confirm" | "input" | "editor";
+		question: string;
+		options?: Array<string | { label: string; value?: string; description?: string }>;
+		allowOther?: boolean;
+		placeholder?: string;
+		prefill?: string;
+	}>;
+	/** 批量是否强制 Submit 审阅 tab */
+	batchReview?: boolean;
 	completed?: boolean;
 	value?: string;
 	cancelled?: boolean;
@@ -620,12 +642,6 @@ export function App() {
     string | undefined
   >(undefined);
   const [sessionActionsOpen, setSessionActionsOpen] = useState(false);
-  const [appNotice, setAppNotice] = useState<{
-    message: string;
-    duration: number;
-    kind?: "info" | "error" | "warning";
-  } | null>(null);
-  const appNoticeTimeoutRef = useRef<number | null>(null);
   const [switchingBranch, setSwitchingBranch] = useState<string | null>(null);
   const [promptByAgent, setPromptByAgent] = useState<Record<string, string>>(
     {},
@@ -672,25 +688,6 @@ export function App() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [editorsOpen]);
-  // 订阅 app-notice 通知：替代 sonner toast
-  useEffect(() => {
-    return subscribeToNotice((data) => {
-      if (data) {
-        setAppNotice({
-          message: data.message,
-          duration: data.duration,
-          kind: data.kind,
-        });
-        if (appNoticeTimeoutRef.current) {
-          window.clearTimeout(appNoticeTimeoutRef.current);
-        }
-        appNoticeTimeoutRef.current = window.setTimeout(() => {
-          setAppNotice(null);
-          appNoticeTimeoutRef.current = null;
-        }, data.duration);
-      }
-    });
-  }, []);
 
   /** 活跃的 Extension UI 请求 map（requestId → UiRequest），用于实时显示 ask_question 卡片 */
   const [activeUiRequest, setActiveUiRequest] = useState<Record<string, UiRequest> | null>(null);
@@ -798,6 +795,7 @@ export function App() {
     y: number;
     node: FileTreeNode;
   } | null>(null);
+  const [hasClipboardFiles, setHasClipboardFiles] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string;
     message: string;
@@ -895,7 +893,8 @@ export function App() {
     setEditorMode((prev) => {
       const next = prev === "modal" ? "drawer" : "modal";
       if (next === "drawer") {
-        setDrawer("editor");
+        // 侧栏编辑器挂在「文件」Tab 下，避免切到独立 editor 面板后丢失 Files/Git/Browser chrome
+        setDrawer("files");
         setDrawerCollapsed(false);
       }
       return next;
@@ -946,6 +945,7 @@ export function App() {
       return;
     }
     // 最小化必须真正恢复 Git 抽屉，不能只移除 modal 后把用户留在其他面板。
+    lastToolDrawerRef.current = "git";
     setDrawer("git");
     setDrawerCollapsed(false);
     setGitDiffDisplayMode("drawer");
@@ -1226,14 +1226,17 @@ export function App() {
   }, []);
   const [renderedDrawer, setRenderedDrawer] = useState<DrawerPanel | null>(null);
   const drawerUnmountTimerRef = useRef<number | null>(null);
-  /** 打开文件编辑器前所在的抽屉面板，供返回按钮恢复 */
+  /** 打开文件编辑器前所在的抽屉面板（兼容旧路径）；新路径编辑器固定挂在 files Tab */
   const prevDrawerPanelRef = useRef<DrawerPanel | null>(null);
-  // 最后一个 editor tab 被关闭时自动收起 drawer
+  /** 最近一次右侧工具 Tab（文件/Git/浏览器），供标题栏一键展开恢复 */
+  const lastToolDrawerRef = useRef<"files" | "git" | "browser">("files");
+  // 兼容旧路径：drawer=editor 统一落到 files Tab（编辑器作为 files 子视图）
   useEffect(() => {
-    if (editorTabs.length === 0 && drawer === "editor") {
-      setDrawer(null);
+    if (drawer === "editor") {
+      lastToolDrawerRef.current = "files";
+      setDrawer("files");
     }
-  }, [editorTabs.length, drawer]);
+  }, [drawer]);
   const [sessionsProjectId, setSessionsProjectId] = useState<string>();
   const [sessionHistoryLoading, setSessionHistoryLoading] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -1326,7 +1329,11 @@ export function App() {
     fontFamilyBaseCustom: "",
     fontFamilyMono: "commit-mono",
     fontFamilyMonoCustom: "",
+    removedBuiltInExtensions: [],
     disableUpdateCheck: false,
+    piRpcOffline: true,
+    piRpcNoExtensions: false,
+    piRpcNoSkills: false,
   });
   /* settingsNotice 已改用 showToast (app-notice) 实现 */
   const [piProxyNotice, setPiProxyNotice] = useState("");
@@ -1439,6 +1446,9 @@ export function App() {
         });
       }
       if (panel && canRestorePanel) {
+        if (panel === "files" || panel === "git" || panel === "browser") {
+          lastToolDrawerRef.current = panel;
+        }
         setDrawer(panel);
         setDrawerCollapsed(false);
       } else {
@@ -1803,7 +1813,7 @@ export function App() {
         }).join(separator)
       : selected.map((m) => m.text).join(separator);
 
-    await navigator.clipboard.writeText(content);
+    await writeClipboard(content);
     showToast(kind === "text" ? t("copy.asTextCopied") : t("copy.asMarkdownCopied"));
     setMultiSelectOpen(false);
   }, [activeMessages, renderedRuns]);
@@ -1840,13 +1850,17 @@ export function App() {
     return ids;
   }, [activeMessages]);
 
-  // 从 activeUiRequest 提取正在进行的交互式请求（select/confirm/input/editor）
+  // 从 activeUiRequest 提取正在进行的交互式请求（select/confirm/input/editor/batch_ask）
   // 这是 ask_question 在 pi RPC 模式下的表现方式：pi 通过 extension_ui_request 将
   // 等待用户回答的对话框发送到桌面端，包含 requestId、title、options 等完整信息。
+  // batch_ask：扩展把整份问卷塞进一次 input envelope，桌面端用 Tab UI 一次答完。
   const activeUiAsk = useMemo(() => {
     if (!activeUiRequest) return undefined;
     return Object.values(activeUiRequest).find(
-      (req) => !req.completed && req.agentId === activeAgentId && ["select", "confirm", "input", "editor"].includes(req.method),
+      (req) =>
+        !req.completed &&
+        req.agentId === activeAgentId &&
+        ["select", "confirm", "input", "editor", "batch_ask"].includes(req.method),
     );
   }, [activeUiRequest, activeAgentId]);
   // dialog 显示条件：仅当有活跃的交互式 UI 请求时
@@ -2383,6 +2397,7 @@ export function App() {
     // 直接在原始 runtimeState 事件上识别 tool true→false，避免 React 把很快的
     // tool_start/tool_end 批量成一次 render 后漏掉 steer 的投递窗口。
     const offOpenInBrowser = api.app.onOpenInBrowser?.((url: string) => {
+      lastToolDrawerRef.current = "browser";
       setDrawer("browser");
       setDrawerCollapsed(false);
       navigateTo(url);
@@ -2944,6 +2959,7 @@ export function App() {
   }, [activeAgentId]);
 
   useEffect(() => {
+    // 默认选中第一项（目录树根级目录），便于浏览项目结构
     setSelectedSuggestionIndex(0);
   }, [suggestionItems.length]);
 
@@ -3354,7 +3370,7 @@ export function App() {
     }
   }
 
-  /** 统一通知：所有非模态消息都走 app-notice 位置 */
+  /** 统一通知：使用 sonner toast 展示非模态消息 */
   function showToast(message: string, duration = 3500) {
     showNotice(message, duration);
   }
@@ -3577,23 +3593,40 @@ export function App() {
   }
 
   function openFilePath(path: string) {
-    // 绝对路径直接打开;相对路径按当前 agent cwd / 项目目录解析后交给系统默认应用。
+    // 绝对路径直接打开;相对路径按当前 agent cwd / 项目目录解析。
     const resolvedPath = resolveFileLinkPath(path, activeAgent?.cwd ?? activeProject?.path);
-    void api.files.open(resolvedPath).catch((error) => {
-      showToast(t("app.openFileFailed", {
-        error: error instanceof Error ? error.message : String(error),
-      }));
-    });
+    // 文本文件→内置编辑器；二进制→系统默认应用。
+    if (isTextFile(resolvedPath)) {
+      viewFilePath(resolvedPath);
+    } else {
+      void api.files.open(resolvedPath).catch((error) => {
+        showToast(t("app.openFileFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      });
+    }
+  }
+
+  /** 关闭侧栏文件编辑器，回到「文件」Tab 的文件列表（保留右侧工具栏 chrome） */
+  function backToFilesList() {
+    setActiveTabId(null);
+    setEditorTabs([]);
+    setEditorMode("drawer");
+    prevDrawerPanelRef.current = null;
+    lastToolDrawerRef.current = "files";
+    setDrawer("files");
+    setDrawerCollapsed(false);
   }
 
   function viewFilePath(path: string) {
     // HTML/HTM 文件默认在编辑器中打开（与 .md 一致），
     // 需要预览时通过编辑器工具栏的「浏览器预览」按钮切换到内置浏览器。
     openEditorTab(path, "view");
-    // 始终切换到侧栏模式，确保文件预览在抽屉中渲染
+    // 侧栏编辑器嵌在「文件」Tab 内，顶部 Files/Git/Browser 始终可见，可一键返回文件树
     setEditorMode("drawer");
-    prevDrawerPanelRef.current = drawer;
-    setDrawer("editor");
+    prevDrawerPanelRef.current = "files";
+    lastToolDrawerRef.current = "files";
+    setDrawer("files");
     setDrawerCollapsed(false);
   }
 
@@ -4883,14 +4916,14 @@ export function App() {
     if (suggestionsOpen && suggestionItems.length > 0) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
-        setSelectedSuggestionIndex((index) =>
-          Math.min(index + 1, suggestionItems.length - 1),
+        setSelectedSuggestionIndex((prev) =>
+          Math.min(prev + 1, suggestionItems.length - 1),
         );
         return;
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        setSelectedSuggestionIndex((index) => Math.max(index - 1, 0));
+        setSelectedSuggestionIndex((prev) => Math.max(prev - 1, 0));
         return;
       }
       if (event.key === "Enter") {
@@ -4901,6 +4934,7 @@ export function App() {
           suggestionItems[
             Math.min(selectedSuggestionIndex, suggestionItems.length - 1)
           ];
+        if (selected?.disabled) return;
         if (selected) {
           // 以光标为锚替换触发符..光标这一段,并在下一帧恢复光标到插入项之后。
           const el = event.currentTarget;
@@ -5463,7 +5497,7 @@ export function App() {
   async function resendUserMessage(message: ChatMessage) {
     if (!activeAgentId || message.agentId !== activeAgentId) return;
     if (resendingIdsRef.current.has(message.id)) return;
-    // 同文件截断重发需要 idle：先删掉该用户消息及其后续，再重新 prompt。
+    // 同文件截断重发需要 idle：只删当前用户消息及其本轮后代，保留更早历史，再重新 prompt。
     if (isAgentBusy || isAgentStarting) {
       showToast(t("message.busyGeneric"), 3000);
       return;
@@ -5635,7 +5669,8 @@ export function App() {
     const liveComposerPrompt = activeAgentIdRef.current
       ? (livePromptByAgentRef.current[activeAgentIdRef.current] ?? prompt)
       : prompt;
-    const refText = paths.map((p) => `@${p}`).join(" ");
+    // 含空格路径写成 @"C:\Users\a b\file.txt"，避免 chip 解析在空格处截断。
+    const refText = paths.map((p) => formatFilePathRef(p)).join(" ");
     const spacer =
       cursor > 0 &&
       liveComposerPrompt[cursor - 1] !== " " &&
@@ -5680,6 +5715,9 @@ export function App() {
    * 顺序说明：资源管理器复制图片文件时，剪贴板常同时带路径 + 缩略图；
    * 必须先判定文件路径，否则会被误当成截图附加。纯截图无路径，仍走图片分支。
    */
+  /** 判断文件扩展名是否为常见图片格式 */
+  const isImageExt = (p: string) => /(\.(png|jpe?g|gif|webp|bmp))$/i.test(p);
+
   function handlePaste(event: React.ClipboardEvent) {
     const items = Array.from(event.clipboardData.items);
 
@@ -5688,7 +5726,24 @@ export function App() {
     const clipboardPaths = window.piDesktop.files.getClipboardPaths?.() ?? [];
     if (clipboardPaths.length > 0) {
       event.preventDefault();
-      insertFilePathRefs(clipboardPaths);
+      const imagePaths = clipboardPaths.filter((p) => isImageExt(p));
+      const nonImagePaths = clipboardPaths.filter((p) => !isImageExt(p));
+      // 非图片：插入完整 @绝对路径 引用
+      if (nonImagePaths.length > 0) insertFilePathRefs(nonImagePaths);
+      // 图片文件：按附件附加（不是 @path 引用）；从磁盘读 base64，避免只拿到缩略图。
+      if (imagePaths.length > 0) {
+        void (async () => {
+          for (const path of imagePaths) {
+            try {
+              const dataUrl = await api.files.readBase64(path);
+              if (!dataUrl) continue;
+              setAttachedImages((prev) => [...prev, dataUrlToImageContent(dataUrl, "image/png")]);
+            } catch {
+              // 单张失败不阻断其余
+            }
+          }
+        })();
+      }
       return;
     }
 
@@ -5701,12 +5756,27 @@ export function App() {
       const paths = resolveLocalPathsFromFiles(files);
       if (paths.length > 0) {
         event.preventDefault();
-        insertFilePathRefs(paths);
+        const imagePaths = paths.filter((p) => isImageExt(p));
+        const nonImagePaths = paths.filter((p) => !isImageExt(p));
+        if (nonImagePaths.length > 0) insertFilePathRefs(nonImagePaths);
+        if (imagePaths.length > 0) {
+          void (async () => {
+            for (const path of imagePaths) {
+              try {
+                const dataUrl = await api.files.readBase64(path);
+                if (!dataUrl) continue;
+                setAttachedImages((prev) => [...prev, dataUrlToImageContent(dataUrl, "image/png")]);
+              } catch {
+                /* ignore */
+              }
+            }
+          })();
+        }
         return;
       }
     }
 
-    // 3) 图片粘贴（截图等位图数据，无本地文件路径）：读取并附加到消息
+    // 3) 纯位图粘贴（截图等，无本地文件路径）：读取并附加到消息
     const imageItems = items.filter((i) => i.type.startsWith("image/"));
     if (imageItems.length > 0) {
       event.preventDefault();
@@ -5999,6 +6069,11 @@ export function App() {
     });
   }
 
+  /** 右侧工具栏 Tab 面板（文件/Git/浏览器），与 editor/sessions 区分 */
+  function isToolDrawerPanel(panel: DrawerPanel | null | undefined): panel is "files" | "git" | "browser" {
+    return panel === "files" || panel === "git" || panel === "browser";
+  }
+
   function openDrawer(panel: DrawerPanel) {
     if (panel === "git" && !settings.enableGitManagement) return;
     if (drawerPinned && panel !== drawerPinnedPanel) return;
@@ -6011,12 +6086,47 @@ export function App() {
     if (panel === "files" && activeProjectId) {
       void refreshFiles(activeProjectId, true);
     }
+    if (isToolDrawerPanel(panel)) {
+      lastToolDrawerRef.current = panel;
+    }
     setDrawer((current) => {
       if (current === panel) return drawerPinned ? current : null;
       // 持久化当前项目的抽屉面板状态
       if (activeProjectId) saveDrawerState(activeProjectId, panel, drawerPinned);
       return panel;
     });
+  }
+
+  /** 切换右侧工具 Tab：始终打开目标面板，不走 openDrawer 的“再点一次关闭”逻辑 */
+  function switchToolDrawer(panel: "files" | "git" | "browser") {
+    if (panel === "git" && !settings.enableGitManagement) return;
+    if (drawerPinned && drawerPinnedPanel && drawerPinnedPanel !== panel) return;
+    if (panel !== "git") setGitDrawerDiff(null);
+    if (panel === "files" && activeProjectId) {
+      void refreshFiles(activeProjectId, true);
+    }
+    lastToolDrawerRef.current = panel;
+    setDrawerCollapsed(false);
+    if (activeProjectId) saveDrawerState(activeProjectId, panel, drawerPinned);
+    setDrawer(panel);
+  }
+
+  /** 标题栏右侧按钮：关闭态打开上次工具面板；展开态折叠；已折叠则展开 */
+  function toggleRightDrawer() {
+    if (!drawer) {
+      const preferred =
+        lastToolDrawerRef.current === "git" && !settings.enableGitManagement
+          ? "files"
+          : lastToolDrawerRef.current;
+      switchToolDrawer(preferred);
+      return;
+    }
+    if (drawerCollapsed) {
+      setDrawerCollapsed(false);
+      return;
+    }
+    if (drawerPinned) return;
+    setDrawerCollapsed(true);
   }
 
   function closeDrawer() {
@@ -6177,6 +6287,7 @@ export function App() {
     if (moduleState!.navigateKey) {
       moduleState!.navigateKey = 0;
     }
+    lastToolDrawerRef.current = "browser";
     setDrawer("browser");
     setDrawerCollapsed(false);
   };
@@ -6216,12 +6327,25 @@ export function App() {
             title={listCollapsed ? t("app.expandList") : t("app.collapseList")}
             onClick={toggleListCollapsed}
           >
-            <PanelLeft size={15} strokeWidth={2.2} aria-hidden="true" />
+            <PanelLeft size={13} strokeWidth={2.2} aria-hidden="true" />
           </button>
         </div>
       )}
       {!settings.useNativeTitleBar && (
         <div className="window-controls" aria-label={t("app.windowControls")}>
+          <button
+            type="button"
+            className={`window-control drawer-toggle${drawer && !drawerCollapsed ? " active" : ""}`}
+            aria-label={
+              drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")
+            }
+            title={
+              drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")
+            }
+            onClick={toggleRightDrawer}
+          >
+            <PanelRight size={13} strokeWidth={2.2} aria-hidden="true" />
+          </button>
           <button
             type="button"
             className={`window-control pin${windowAlwaysOnTop ? " active" : ""}`}
@@ -6236,7 +6360,7 @@ export function App() {
               setWindowAlwaysOnTop(next);
             }}
           >
-            <Pin size={15} strokeWidth={2.2} aria-hidden="true" />
+            <Pin size={13} strokeWidth={2.2} aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -6245,7 +6369,7 @@ export function App() {
             title={t("app.windowMinimize")}
             onClick={() => api.app.minimizeWindow()}
           >
-            <Minus size={15} strokeWidth={2.2} aria-hidden="true" />
+            <Minus size={13} strokeWidth={2.2} aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -6254,7 +6378,7 @@ export function App() {
             title={t("app.windowToggleMaximize")}
             onClick={() => api.app.toggleMaximizeWindow()}
           >
-            <Square size={13} strokeWidth={2} aria-hidden="true" />
+            <Square size={11} strokeWidth={2} aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -6263,9 +6387,21 @@ export function App() {
             title={t("app.windowClose")}
             onClick={() => api.app.closeWindow()}
           >
-            <X size={16} strokeWidth={2.2} aria-hidden="true" />
+            <X size={14} strokeWidth={2.2} aria-hidden="true" />
           </button>
         </div>
+      )}
+      {/* 系统标题栏模式 + 列表已折叠：侧栏内容整体隐藏，需浮动按钮恢复 */}
+      {settings.useNativeTitleBar && listCollapsed && (
+        <button
+          type="button"
+          className="list-toggle-native floating"
+          title={t("app.expandList")}
+          aria-label={t("app.expandList")}
+          onClick={toggleListCollapsed}
+        >
+          <PanelLeft size={14} strokeWidth={2} aria-hidden="true" />
+        </button>
       )}
       <aside
         className="chat-list-pane v3-braun"
@@ -6276,6 +6412,18 @@ export function App() {
             {/* 官方 π 标 + 字标；agent 启停时通过 replayToken 重播动画 */}
             <BrandLockup replayToken={brandLogoReplayToken} />
           </div>
+          {/* 系统标题栏模式下左上角没有 window-controls-left，折叠入口放到工具栏 */}
+          {settings.useNativeTitleBar && (
+            <button
+              type="button"
+              className="list-toggle-native"
+              title={t("app.collapseList")}
+              aria-label={t("app.collapseList")}
+              onClick={toggleListCollapsed}
+            >
+              <PanelLeft size={14} strokeWidth={2} aria-hidden="true" />
+            </button>
+          )}
         </div>
         <button
           className="collapse-button list-collapse"
@@ -6711,11 +6859,6 @@ export function App() {
                           <span className="agent-node-marker" aria-hidden="true" />
                           <div className="conversation-body">
                             <div className="conversation-title">
-                              {agent.status && (
-                                <span className={`agent-status-indicator status-${agent.status}`}>
-                                  {t(`app.status${agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}` as any) || agent.status}
-                                </span>
-                              )}
                               <strong>{agent.title}</strong>
                               {child.source && child.source !== "pi" && (
                                 <span className={`session-source-badge ${child.source}`}>
@@ -6723,6 +6866,8 @@ export function App() {
                                 </span>
                               )}
                               {renderInlineSubagentToggle}
+                              {/* 状态圆点放标题行最右侧，对齐最近会话列表风格 */}
+                              {agent.status && <AgentStatusIndicator status={agent.status} />}
                             </div>
                           </div>
                         </button>
@@ -6965,7 +7110,6 @@ export function App() {
                                   <span className="agent-node-marker" aria-hidden="true" />
                                   <div className="conversation-body">
                                     <div className="conversation-title">
-                                      {agent.status && (<span className={`agent-status-indicator status-${agent.status}`}>{t(`app.status${agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}` as any) || agent.status}</span>)}
                                       <strong>{agent.title}</strong>
                                       {agent.noSession && (
                                         <span
@@ -6981,6 +7125,8 @@ export function App() {
                                           <span className="subagent-inline-count">{totalSubagentCount}</span>
                                         </span>
                                       )}
+                                      {/* 状态圆点放标题行最右侧，对齐最近会话列表风格 */}
+                                      {agent.status && <AgentStatusIndicator status={agent.status} />}
                                     </div>
                                   </div>
                                 </button>
@@ -7201,77 +7347,6 @@ export function App() {
                         </span>
                       )}
                     </button>
-                    {appNotice && (
-                      <div
-                        className={
-                          appNotice.kind === "error"
-                            ? "app-notice app-notice-error"
-                            : appNotice.kind === "warning"
-                              ? "app-notice app-notice-warning"
-                              : "app-notice"
-                        }
-                        role={appNotice.kind === "error" ? "alert" : "status"}
-                        // 允许选中复制；错误类消息额外提供一键复制，避免长报错只能眼看
-                        onMouseEnter={() => {
-                          if (appNoticeTimeoutRef.current) {
-                            window.clearTimeout(appNoticeTimeoutRef.current);
-                            appNoticeTimeoutRef.current = null;
-                          }
-                        }}
-                        onMouseLeave={() => {
-                          if (!appNotice) return;
-                          if (appNoticeTimeoutRef.current) {
-                            window.clearTimeout(appNoticeTimeoutRef.current);
-                          }
-                          appNoticeTimeoutRef.current = window.setTimeout(() => {
-                            setAppNotice(null);
-                            appNoticeTimeoutRef.current = null;
-                          }, 1200);
-                        }}
-                      >
-                        <span className="app-notice-text" title={appNotice.message}>
-                          {appNotice.message}
-                        </span>
-                        {/* 与正文并排的 flex 子项：避免内联 button 被 pre-wrap 挤到下一行 */}
-                        {(appNotice.kind === "error" || appNotice.kind === "warning") && (
-                          <button
-                            type="button"
-                            className="app-notice-copy"
-                            title={t("common.copy")}
-                            aria-label={t("common.copy")}
-                            onClick={async (event) => {
-                              event.stopPropagation();
-                              try {
-                                await navigator.clipboard.writeText(appNotice.message);
-                                const btn = event.currentTarget;
-                                btn.classList.add("is-copied");
-                                window.setTimeout(() => btn.classList.remove("is-copied"), 900);
-                              } catch {
-                                // navigator.clipboard.writeText 在 Electron 中有时抛异常但实际已写入
-                                // 尝试 fallback 复制
-                                try {
-                                  const textarea = document.createElement("textarea");
-                                  textarea.value = appNotice.message;
-                                  textarea.style.position = "fixed";
-                                  textarea.style.opacity = "0";
-                                  document.body.appendChild(textarea);
-                                  textarea.select();
-                                  document.execCommand("copy");
-                                  document.body.removeChild(textarea);
-                                  const btn = event.currentTarget;
-                                  btn.classList.add("is-copied");
-                                  window.setTimeout(() => btn.classList.remove("is-copied"), 900);
-                                } catch {
-                                  showNotice(t("copy.failed"), 2000, "error");
-                                }
-                              }
-                            }}
-                          >
-                            <Copy size={11} strokeWidth={1.8} aria-hidden="true" />
-                          </button>
-                        )}
-                      </div>
-                    )}
                   {sessionActionsOpen && activeAgentId && (
                     <div className="session-combo-menu">
                       <button
@@ -7369,6 +7444,18 @@ export function App() {
                 </div>
               </div>
               </div>
+              {/* 系统标题栏模式下右上角没有 window-controls，右侧边栏开关放到会话头部 */}
+              {settings.useNativeTitleBar && (
+                <button
+                  type="button"
+                  className={`header-drawer-toggle${drawer && !drawerCollapsed ? " active" : ""}`}
+                  title={drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")}
+                  aria-label={drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")}
+                  onClick={toggleRightDrawer}
+                >
+                  <PanelRight size={14} strokeWidth={2} aria-hidden="true" />
+                </button>
+              )}
             </>
           </div>
         </header>
@@ -7607,6 +7694,94 @@ export function App() {
 
         {activeAgent && (
         <footer ref={composerRef} className="composer">
+          {/* 扩展 widget 固定在输入框上方；Todo+Plan 合并成一张任务卡，内部分区区分来源。 */}
+          {activeAgentId && extensionWidgetsByAgent[activeAgentId] && Object.keys(extensionWidgetsByAgent[activeAgentId]).length > 0 && (() => {
+            const entries = Object.entries(extensionWidgetsByAgent[activeAgentId]);
+            const widgetSessionKey = getAgentSessionStorageKey(activeAgent, activeAgentId);
+            const isDismissed = (key: string) =>
+              Boolean(widgetSessionKey && agentDismissedWidgets[widgetSessionKey]?.includes(key));
+            const visibleEntries = entries.filter(([key]) => !isDismissed(key));
+            if (widgetsCollapsed || visibleEntries.length === 0) return null;
+
+            // Todo / Plan 仍由各自扩展 setWidget，这里只在 UI 层合成一张卡，
+            // 避免并排两块；关闭时仍按原始 key 分别 dismiss，保持扩展协议不变。
+            const todoEntry = visibleEntries.find(([key]) => key === TODO_WIDGET_KEY);
+            const planEntry = visibleEntries.find(([key]) => key === PLAN_WIDGET_KEY);
+            const otherEntries = visibleEntries.filter(
+              ([key]) => key !== TODO_WIDGET_KEY && key !== PLAN_WIDGET_KEY,
+            );
+            const taskSections = [
+              todoEntry
+                ? {
+                    key: TODO_WIDGET_KEY,
+                    label: t("app.widgetTodo"),
+                    lines: todoEntry[1],
+                  }
+                : null,
+              planEntry
+                ? {
+                    key: PLAN_WIDGET_KEY,
+                    label: t("app.widgetPlan"),
+                    lines: planEntry[1],
+                  }
+                : null,
+            ].filter((s): s is { key: string; label: string; lines: string[] } => Boolean(s));
+
+            const dismissKeys = (keys: string[]) => {
+              if (!widgetSessionKey || keys.length === 0) return;
+              setAgentDismissedWidgets((prev) => {
+                const current = prev[widgetSessionKey] ?? [];
+                const merged = [...current];
+                let changed = false;
+                for (const key of keys) {
+                  if (!merged.includes(key)) {
+                    merged.push(key);
+                    changed = true;
+                  }
+                }
+                if (!changed) return prev;
+                const next = { ...prev, [widgetSessionKey]: merged };
+                saveDismissedExtensionWidgets(next);
+                return next;
+              });
+            };
+
+            return (
+              <div className="extension-widgets-container" key="widgets-container">
+                {taskSections.length > 0 && (
+                  <ExtensionWidgetCard
+                    key={MERGED_TASK_WIDGET_KEY}
+                    widgetKey={
+                      taskSections.length > 1
+                        ? MERGED_TASK_WIDGET_KEY
+                        : taskSections[0].key
+                    }
+                    lines={[]}
+                    sections={taskSections}
+                    meta={
+                      taskSections.length > 1
+                        ? t("app.widgetTodosMeta", {
+                            todo: String(todoEntry?.[1]?.length ?? 0),
+                            plan: String(planEntry?.[1]?.length ?? 0),
+                          })
+                        : undefined
+                    }
+                    sessionIdOrPath={widgetSessionKey}
+                    onClose={() => dismissKeys(taskSections.map((s) => s.key))}
+                  />
+                )}
+                {otherEntries.map(([widgetKey, widgetLines]) => (
+                  <ExtensionWidgetCard
+                    key={widgetKey}
+                    widgetKey={widgetKey}
+                    lines={widgetLines}
+                    sessionIdOrPath={widgetSessionKey}
+                    onClose={() => dismissKeys([widgetKey])}
+                  />
+                ))}
+              </div>
+            );
+          })()}
           {/* 图片预览作为输入框上方的附件栏,避免占用 textarea 的可输入区域。 */}
           {attachedImages.length > 0 && (
             <div className="image-preview-area">
@@ -7636,34 +7811,6 @@ export function App() {
               </button>
             </div>
           )}
-          {activeAgentId && extensionWidgetsByAgent[activeAgentId] && Object.keys(extensionWidgetsByAgent[activeAgentId]).length > 0 && (() => {
-            const entries = Object.entries(extensionWidgetsByAgent[activeAgentId]);
-            const widgetSessionKey = getAgentSessionStorageKey(activeAgent, activeAgentId);
-            return (
-              <div className="extension-widgets-container" key="widgets-container">
-                {!widgetsCollapsed && entries.filter(([key]) =>
-                  widgetSessionKey && !(agentDismissedWidgets[widgetSessionKey]?.includes(key))
-                ).map(([widgetKey, widgetLines]) => (
-                  <ExtensionWidgetCard
-                    key={widgetKey}
-                    widgetKey={widgetKey}
-                    lines={widgetLines}
-                    sessionIdOrPath={widgetSessionKey}
-                    onClose={() => {
-                      if (!widgetSessionKey) return;
-                      setAgentDismissedWidgets((prev) => {
-                        const current = prev[widgetSessionKey] ?? [];
-                        if (current.includes(widgetKey)) return prev;
-                        const next = { ...prev, [widgetSessionKey]: [...current, widgetKey] };
-                        saveDismissedExtensionWidgets(next);
-                        return next;
-                      });
-                    }}
-                  />
-                ))}
-              </div>
-            );
-          })()}
           {activeQueuedPrompts.length > 0 && activeAgentId && (
             <div
               ref={queuedTrackRef}
@@ -7761,40 +7908,138 @@ export function App() {
               </div>
             </div>
           )}
-          {showAskDialog && activeUiAsk && (
-            <div className="ask-inline-bar">
+          {/* 批量 ask（batch_ask）：Tab 标签页问卷 */}
+          {showAskDialog && activeUiAsk && activeUiAsk.method === "batch_ask" && (
+            <BatchAskInlineBar
+              uiRequest={activeUiAsk}
+              activeAgentId={activeAgentId}
+              onCancel={() => {
+                if (activeUiAsk.requestId && activeAgentId) {
+                  setActiveUiRequest((current) => {
+                    if (!current) return null;
+                    const next = { ...current };
+                    delete next[activeUiAsk.requestId];
+                    if (Object.keys(next).length === 0) return null;
+                    return next;
+                  });
+                  api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { cancelled: true });
+                }
+              }}
+              onSubmit={(answersJson: string) => {
+                if (activeUiAsk.requestId && activeAgentId) {
+                  setActiveUiRequest((current) => {
+                    if (!current) return null;
+                    const next = { ...current };
+                    delete next[activeUiAsk.requestId];
+                    if (Object.keys(next).length === 0) return null;
+                    return next;
+                  });
+                  api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: answersJson });
+                }
+              }}
+            />
+          )}
+          {/* 传统单问（select/confirm/input/editor） */}
+          {showAskDialog && activeUiAsk && activeUiAsk.method !== "batch_ask" && (() => {
+            // Plan 结束后的「下一步」选单：关闭=退出计划模式，绝不是「默认第一项」。
+            // 扩展用标题前缀 [PI_DECK_PLAN_NEXT] 标记；选项用「标题|说明」编码，桌面端拆主副文案。
+            const PLAN_NEXT_MARKER = "[PI_DECK_PLAN_NEXT]";
+            const PLAN_REVISE_MARKER = "[PI_DECK_PLAN_REVISE]";
+            const rawTitle = activeUiAsk.title || "";
+            const isPlanNextSelect =
+              activeUiAsk.method === "select" && rawTitle.includes(PLAN_NEXT_MARKER);
+            // 「修改计划」二次编辑：取消应回到三选一，而不是退出计划模式。
+            const isPlanReviseEditor =
+              activeUiAsk.method === "editor" && rawTitle.includes(PLAN_REVISE_MARKER);
+            const displayTitle = isPlanNextSelect
+              ? rawTitle.replace(PLAN_NEXT_MARKER, "").trim()
+              : isPlanReviseEditor
+                ? rawTitle.replace(PLAN_REVISE_MARKER, "").trim()
+                : (rawTitle || t("ask.pending"));
+            const isSelectWithOptions =
+              activeUiAsk.method === "select" &&
+              Array.isArray(activeUiAsk.options) &&
+              activeUiAsk.options.length > 0;
+            const cancelHintKey = isPlanNextSelect
+              ? "ask.planNextCancelHint"
+              : isPlanReviseEditor
+                ? "ask.planReviseBackHint"
+                : "ask.cancelHint";
+
+            const dismissAsk = () => {
+              if (!activeUiAsk.requestId || !activeAgentId) return;
+              setActiveUiRequest((current) => {
+                if (!current) return null;
+                const next = { ...current };
+                delete next[activeUiAsk.requestId];
+                if (Object.keys(next).length === 0) return null;
+                return next;
+              });
+            };
+            const respondValue = (value: string) => {
+              if (!activeUiAsk.requestId || !activeAgentId) return;
+              dismissAsk();
+              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
+            };
+            const respondCancel = () => {
+              if (!activeUiAsk.requestId || !activeAgentId) return;
+              dismissAsk();
+              // 普通 select 取消：发 value:null（与 abort 路径一致），避免 cancelled→undefined
+              // 被旧版 ask_question 的 `?? opts[0]` 回落成第一项。Plan 下一步/修改计划仍用 cancelled。
+              if (activeUiAsk.method === "select" && !isPlanNextSelect) {
+                api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, {
+                  value: null,
+                });
+                return;
+              }
+              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { cancelled: true });
+            };
+
+            /** Plan 选项：优先匹配已知前缀 → i18n；否则按「标题|说明」拆分 */
+            const planOptionMeta = (raw: string): { title: string; desc?: string; tone?: "primary" | "secondary" | "muted" } => {
+              if (raw.startsWith("开始执行")) {
+                return { title: t("ask.planNextExecute"), desc: t("ask.planNextExecuteDesc"), tone: "primary" };
+              }
+              if (raw.startsWith("先不执行") || raw.startsWith("继续规划")) {
+                return { title: t("ask.planNextContinue"), desc: t("ask.planNextContinueDesc"), tone: "secondary" };
+              }
+              if (raw.startsWith("修改计划")) {
+                return { title: t("ask.planNextRevise"), desc: t("ask.planNextReviseDesc"), tone: "muted" };
+              }
+              const sep = raw.indexOf("|");
+              if (sep > 0) {
+                return { title: raw.slice(0, sep).trim(), desc: raw.slice(sep + 1).trim() || undefined };
+              }
+              const dash = raw.indexOf(" — ");
+              if (dash > 0) {
+                return { title: raw.slice(0, dash).trim(), desc: raw.slice(dash + 3).trim() || undefined };
+              }
+              return { title: raw };
+            };
+
+            return (
+            <div className={`ask-inline-bar${isPlanNextSelect ? " ask-inline-bar--plan-next" : ""}`}>
               <div className="ask-inline-bar-header">
                 <MessageCircle size={14} />
-                <span>{t("ask.toolName")}</span>
-                {/* select 类型取消提示 */}
-                {activeUiAsk.method === "select" && Array.isArray(activeUiAsk.options) && activeUiAsk.options.length > 0 && (
-                  <span className="ask-inline-bar-cancel-hint">{t("ask.cancelHint")}</span>
+                <span>{(isPlanNextSelect || isPlanReviseEditor) ? t("app.composerModePlan") : t("ask.toolName")}</span>
+                {(isSelectWithOptions || isPlanReviseEditor) && (
+                  <span className="ask-inline-bar-cancel-hint">{t(cancelHintKey)}</span>
                 )}
                 <button
                   className="ask-inline-bar-close"
-                  title={t("common.close")}
+                  title={isPlanReviseEditor ? t("ask.planReviseBack") : t("common.close")}
                   onClick={() => {
-                    const isSelect = activeUiAsk.method === "select" && Array.isArray(activeUiAsk.options) && activeUiAsk.options.length > 0;
-                    if (isSelect) {
-                      showToast(t("ask.cancelHint"));
-                    }
-                    if (activeUiAsk.requestId && activeAgentId) {
-                      /* 立即从本地 state 移除，同时通知 Pi */
-                      setActiveUiRequest((current) => {
-                        if (!current) return null;
-                        const next = { ...current };
-                        delete next[activeUiAsk.requestId];
-                        if (Object.keys(next).length === 0) return null;
-                        return next;
-                      });
-                      api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { cancelled: true });
-                    }
+                    if (isSelectWithOptions || isPlanReviseEditor) showToast(t(cancelHintKey));
+                    respondCancel();
                   }}
                 >
                   <X size={14} />
                 </button>
               </div>
-              <div className="ask-inline-bar-question">{activeUiAsk.title || t("ask.pending")}</div>
+              <div className="ask-inline-bar-question">{displayTitle}</div>
+              {isPlanNextSelect && (
+                <div className="ask-inline-bar-guide">{t("ask.planNextGuide")}</div>
+              )}
               <div className="ask-inline-bar-body">
                 {activeUiAsk.method === "confirm" ? (
                   <div className="ask-inline-bar-options ask-inline-bar-options-confirm">
@@ -7802,14 +8047,7 @@ export function App() {
                       className="ask-inline-bar-option ask-inline-bar-option-yes"
                       onClick={() => {
                         if (activeUiAsk.requestId && activeAgentId) {
-                          /* 立即移除，同时发送响应 */
-                          setActiveUiRequest((current) => {
-                            if (!current) return null;
-                            const next = { ...current };
-                            delete next[activeUiAsk.requestId];
-                            if (Object.keys(next).length === 0) return null;
-                            return next;
-                          });
+                          dismissAsk();
                           api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: true });
                         }
                       }}
@@ -7820,13 +8058,7 @@ export function App() {
                       className="ask-inline-bar-option ask-inline-bar-option-no"
                       onClick={() => {
                         if (activeUiAsk.requestId && activeAgentId) {
-                          setActiveUiRequest((current) => {
-                            if (!current) return null;
-                            const next = { ...current };
-                            delete next[activeUiAsk.requestId];
-                            if (Object.keys(next).length === 0) return null;
-                            return next;
-                          });
+                          dismissAsk();
                           api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: false });
                         }
                       }}
@@ -7835,8 +8067,44 @@ export function App() {
                     </button>
                   </div>
                 ) : activeUiAsk.options && activeUiAsk.options.length > 0 ? (
+                  isPlanNextSelect ? (
+                    <div className="ask-plan-next-options" role="listbox" aria-label={displayTitle}>
+                      {activeUiAsk.options.filter((opt) => {
+                        const label = typeof opt === "string" ? opt : String((opt as any).label ?? opt);
+                        return !label.startsWith("✎");
+                      }).map((opt, i) => {
+                        const val = typeof opt === "string" ? opt : String((opt as any).value ?? (opt as any).label ?? opt);
+                        const meta = planOptionMeta(val);
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            role="option"
+                            className={`ask-plan-next-option${meta.tone ? ` tone-${meta.tone}` : ""}`}
+                            title={meta.desc ? `${meta.title}：${meta.desc}` : meta.title}
+                            onClick={() => respondValue(val)}
+                          >
+                            {/* 横排三钮：标题单行 + 说明最多两行；完整文案放 title 防截断看不清 */}
+                            <span className="ask-plan-next-option-title">{meta.title}</span>
+                            {meta.desc ? (
+                              <span className="ask-plan-next-option-desc">{meta.desc}</span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        className="ask-plan-next-dismiss"
+                        onClick={() => {
+                          showToast(t("ask.planNextCancelHint"));
+                          respondCancel();
+                        }}
+                      >
+                        {t("ask.planNextClose")}
+                      </button>
+                    </div>
+                  ) : (
                   <div className="ask-inline-bar-options">
-                    {/* 过滤掉 Pi 自带的 "✎ 自行输入..." 选项，用下方内联输入框替代 */}
                     {activeUiAsk.options.filter((opt) => {
                       const label = typeof opt === "string" ? opt : String((opt as any).label ?? opt);
                       return !label.startsWith("✎");
@@ -7847,18 +8115,7 @@ export function App() {
                         <button
                           key={i}
                           className="ask-inline-bar-option"
-                          onClick={() => {
-                            if (activeUiAsk.requestId && activeAgentId) {
-                              setActiveUiRequest((current) => {
-                                if (!current) return null;
-                                const next = { ...current };
-                                delete next[activeUiAsk.requestId];
-                                if (Object.keys(next).length === 0) return null;
-                                return next;
-                              });
-                              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: val });
-                            }
-                          }}
+                          onClick={() => respondValue(val)}
                         >
                           <span className="ask-inline-bar-option-marker">{label}</span>
                         </button>
@@ -7876,14 +8133,7 @@ export function App() {
                             const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
                             const val = el?.value?.trim() ?? "";
                             if (val && activeUiAsk.requestId && activeAgentId) {
-                              setActiveUiRequest((current) => {
-                                if (!current) return null;
-                                const next = { ...current };
-                                delete next[activeUiAsk.requestId];
-                                if (Object.keys(next).length === 0) return null;
-                                return next;
-                              });
-                              /* 保存自定义值到 ref，选择 "✎ 自行输入..." 让 Pi 走 input 流 */
+                              dismissAsk();
                               pendingCustomInputRef.current = val;
                               api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
                             }
@@ -7897,14 +8147,7 @@ export function App() {
                           const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
                           const val = el?.value?.trim() ?? "";
                           if (val && activeUiAsk.requestId && activeAgentId) {
-                            setActiveUiRequest((current) => {
-                              if (!current) return null;
-                              const next = { ...current };
-                              delete next[activeUiAsk.requestId];
-                              if (Object.keys(next).length === 0) return null;
-                              return next;
-                            });
-                            /* 保存自定义值到 ref，选择 "✎ 自行输入..." 让 Pi 走 input 流 */
+                            dismissAsk();
                             pendingCustomInputRef.current = val;
                             api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
                           }
@@ -7914,50 +8157,74 @@ export function App() {
                       </button>
                     </div>
                   </div>
+                  )
                 ) : activeUiAsk.method === "input" || activeUiAsk.method === "editor" ? (
-                  <div className="ask-inline-bar-input-area">
-                    <input
-                      id="ask-inline-bar-input"
-                      className="ask-inline-bar-input"
-                      placeholder={activeUiAsk.placeholder || ""}
-                      autoFocus
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && activeUiAsk.requestId && activeAgentId) {
-                          const value = (e.target as HTMLInputElement).value;
-                          setActiveUiRequest((current) => {
-                            if (!current) return null;
-                            const next = { ...current };
-                            delete next[activeUiAsk.requestId];
-                            if (Object.keys(next).length === 0) return null;
-                            return next;
-                          });
-                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
-                        }
-                      }}
-                    />
-                    <button
-                      className="ask-inline-bar-submit-btn"
-                      onClick={() => {
-                        const value = (document.getElementById("ask-inline-bar-input") as HTMLInputElement)?.value ?? "";
-                        if (activeUiAsk.requestId && activeAgentId) {
-                          setActiveUiRequest((current) => {
-                            if (!current) return null;
-                            const next = { ...current };
-                            delete next[activeUiAsk.requestId];
-                            if (Object.keys(next).length === 0) return null;
-                            return next;
-                          });
-                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
-                        }
-                      }}
-                    >
-                      {t("common.submit")}
-                    </button>
+                  <div className={`ask-inline-bar-input-area${isPlanReviseEditor ? " ask-inline-bar-input-area--plan-revise" : ""}`}>
+                    {isPlanReviseEditor ? (
+                      <textarea
+                        id="ask-inline-bar-input"
+                        className="ask-inline-bar-input ask-inline-bar-textarea"
+                        placeholder={activeUiAsk.placeholder || t("ask.planRevisePlaceholder")}
+                        rows={3}
+                        autoFocus
+                        defaultValue={activeUiAsk.prefill || ""}
+                      />
+                    ) : (
+                      <input
+                        id="ask-inline-bar-input"
+                        className="ask-inline-bar-input"
+                        placeholder={activeUiAsk.placeholder || ""}
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && activeUiAsk.requestId && activeAgentId) {
+                            const value = (e.target as HTMLInputElement).value;
+                            respondValue(value);
+                          }
+                        }}
+                      />
+                    )}
+                    <div className="ask-inline-bar-input-actions">
+                      {isPlanReviseEditor && (
+                        <button
+                          type="button"
+                          className="ask-inline-bar-back-btn"
+                          title={t("ask.planReviseBackHint")}
+                          onClick={() => {
+                            showToast(t("ask.planReviseBackHint"));
+                            // cancelled → pi editor 返回 undefined → 扩展 while 循环回到三选一
+                            respondCancel();
+                          }}
+                        >
+                          {t("ask.planReviseBack")}
+                        </button>
+                      )}
+                      <button
+                        className="ask-inline-bar-submit-btn"
+                        onClick={() => {
+                          const el = document.getElementById("ask-inline-bar-input") as
+                            | HTMLInputElement
+                            | HTMLTextAreaElement
+                            | null;
+                          const value = el?.value ?? "";
+                          if (isPlanReviseEditor && !value.trim()) {
+                            // 空提交等价于返回，避免误发空修改意见
+                            showToast(t("ask.planReviseBackHint"));
+                            respondCancel();
+                            return;
+                          }
+                          respondValue(value);
+                        }}
+                      >
+                        {isPlanReviseEditor ? t("ask.planReviseSubmit") : t("common.submit")}
+                      </button>
+                    </div>
                   </div>
                 ) : null}
               </div>
             </div>
-          )}
+            );
+          })()}
+
           <div
             ref={composerBoxRef}
             className={`composer-box ${
@@ -8054,7 +8321,7 @@ export function App() {
                 setSuggestionsOpen(false);
               }}
               onChipClick={(chip: RichInputChip) => {
-                if (chip.kind === "file") { const path = chip.raw.slice(1); openFilePath(path); }
+                if (chip.kind === "file") { openFilePath(unwrapFileChipPath(chip.raw)); }
                 if (chip.kind === "session") {
                   const s = activeProjectSessions.find((x) => (x.name ?? x.filePath) === chip.label);
                   if (s) { setSessionRefPickerTarget(s); setSessionRefPickerOpen(true); }
@@ -8279,7 +8546,8 @@ export function App() {
           <TerminalDock
             key={terminalDockOwnerKey}
             sessionKey={
-              activeAgentId
+              // pending agent 尚未进入主进程 agents map；sessionKey 绝不能用 pending-*
+              activeAgentId && !isPendingAgentId(activeAgentId)
                 ? activeAgentId
                 : activeProject?.path
                   ? projectTerminalSessionKey(activeProject.path)
@@ -8327,38 +8595,6 @@ export function App() {
               },
               icon: <Terminal size={17} />,
             } : undefined}
-            filesAction={{
-              active: drawer === "files",
-              label: t("app.files"),
-              onClick: () => {
-                if (drawer === "files" && !drawerCollapsed) {
-                  if (activeProjectId) saveDrawerState(activeProjectId, null, false);
-                  setDrawer(null);
-                } else {
-                  openDrawer("files");
-                  setDrawerCollapsed(false);
-                }
-              },
-              icon: <FolderOpen size={17} />,
-            }}
-            gitAction={settings.enableGitManagement && activeProjectId ? {
-              active: drawer === "git",
-              label: t("drawer.sourceControl"),
-              onClick: () => {
-                if (drawer === "git" && !drawerCollapsed) {
-                  if (gitDrawerDiff) {
-                    closeGitDiff();
-                    return;
-                  }
-                  if (activeProjectId) saveDrawerState(activeProjectId, null, false);
-                  setDrawer(null);
-                } else {
-                  openDrawer("git");
-                  setDrawerCollapsed(false);
-                }
-              },
-              icon: <GitBranch size={17} />,
-            } : undefined}
             editorsAction={{
               active: editorsOpen,
               label: t("app.openWithEditor"),
@@ -8378,20 +8614,6 @@ export function App() {
               },
               icon: <Code size={17} />,
             }}
-            browserAction={{
-              active: drawer === "browser",
-              label: t("app.browser"),
-              onClick: () => {
-                if (drawer === "browser" && !drawerCollapsed) {
-                  if (activeProjectId) saveDrawerState(activeProjectId, null, false);
-                  setDrawer(null);
-                } else {
-                  setDrawer("browser");
-                  setDrawerCollapsed(false);
-                }
-              },
-              icon: <Globe size={17} />,
-            }}
           />
 
       {/* 右侧分隔条常驻 grid 列 4，宽度由 --drawer-splitter-w 驱动（0/6px）；
@@ -8410,111 +8632,276 @@ export function App() {
         data-open={drawer && !drawerCollapsed}
         data-rendered={Boolean(drawerContentPanel)}
       >
-        {editorMode === "drawer" && drawerContentPanel === "editor" && !drawerCollapsed && activeTab ? (
-          <Suspense fallback={<div className="drawer-content-frame"><div className="file-diff-loading">Loading...</div></div>}>
-            <FileDiffViewer
-              key={activeTab.filePath}
-              displayMode="drawer"
-              onPreviewHtml={handlePreviewHtml}
-filePath={activeTab.filePath}
-              mode={activeTab.mode}
-              onToggleMode={activeTab.preserveDrawer ? undefined : toggleEditorMode}
-              onBack={prevDrawerPanelRef.current && prevDrawerPanelRef.current !== "editor" ? () => {
-                const prev = prevDrawerPanelRef.current;
-                prevDrawerPanelRef.current = null;
-                if (prev) {
-                  setActiveTabId(null);
-                  setEditorTabs([]);
-                  setDrawer(prev);
-                }
-              } : undefined}
-              originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
-              modifiedContent={activeTab.modifiedContent}
-              tabs={editorTabs}
-              activeTabId={activeTabId}
-              onSelectTab={selectEditorTab}
-              onCloseTab={closeEditorTab}
-              onClose={() => { setActiveTabId(null); setEditorTabs([]); setDrawer(null); }}
-              readContent={readEditorFileContent}
-              readOriginalContent={readEditorOriginalContent}
-              saveContent={activeTab.allowSave ? saveEditorFileContent : undefined}
-              theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
-              maxFileSizeMB={settings.maxEditorFileSizeMB}
-            />
-          </Suspense>
-        ) : drawerContentPanel === "browser" && !drawerCollapsed && !browserFullscreen ? (
-          <div className="drawer-content-frame">
-            <BrowserPanel
-              onClose={() => setDrawer(null)}
-              onToggleFullscreen={() => setBrowserFullscreen(true)}
-            />
-          </div>
-        ) : settings.enableGitManagement && drawerContentPanel === "git" && !drawerCollapsed && activeProjectId ? (
-          <div className="drawer-content-frame">
-            <div className="drawer-header">
-              <strong>{t("drawer.sourceControl")}</strong>
-              <div className="drawer-header-actions">
-                <button onClick={collapseDrawer} title={t("drawer.collapsePanel")}>
-                  <Minus size={15} />
+        {/* editor 面板已并入 files 子视图；渲染时把残留 editor 视作 files，避免 chrome 闪断 */}
+        {(isToolDrawerPanel(drawerContentPanel) || drawerContentPanel === "editor") && !drawerCollapsed && !(drawerContentPanel === "browser" && browserFullscreen) ? (
+          <>
+            {/* 统一右侧工具栏：文件 / Git / 浏览器 Tab，避免各面板再套一层大标题头 */}
+            <div className="drawer-chrome">
+              <div className="drawer-tabs" role="tablist" aria-label={t("app.files")}>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`drawer-tab${drawerContentPanel === "files" || drawerContentPanel === "editor" ? " active" : ""}`}
+                  aria-selected={drawerContentPanel === "files" || drawerContentPanel === "editor"}
+                  onClick={() => switchToolDrawer("files")}
+                >
+                  {t("drawer.tabFiles")}
                 </button>
-                <button onClick={closeDrawer} title={t("common.close")}>
-                  <X size={15} />
+                {settings.enableGitManagement && (
+                  <button
+                    type="button"
+                    role="tab"
+                    className={`drawer-tab${drawerContentPanel === "git" ? " active" : ""}`}
+                    aria-selected={drawerContentPanel === "git"}
+                    onClick={() => switchToolDrawer("git")}
+                  >
+                    {t("drawer.tabGit")}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  role="tab"
+                  className={`drawer-tab${drawerContentPanel === "browser" ? " active" : ""}`}
+                  aria-selected={drawerContentPanel === "browser"}
+                  onClick={() => switchToolDrawer("browser")}
+                >
+                  {t("drawer.tabBrowser")}
+                </button>
+              </div>
+              <div className="drawer-header-actions">
+                <button
+                  type="button"
+                  className={drawerPinned ? "active" : ""}
+                  title={drawerPinned ? t("drawer.unpin") : t("drawer.pin")}
+                  aria-label={drawerPinned ? t("drawer.unpin") : t("drawer.pin")}
+                  onClick={toggleDrawerPinned}
+                >
+                  <Pin size={14} />
+                </button>
+                <button
+                  type="button"
+                  disabled={drawerPinned}
+                  title={drawerPinned ? t("drawer.pinnedCannotClose") : t("drawer.closePanel")}
+                  aria-label={t("drawer.closePanel")}
+                  onClick={closeDrawer}
+                >
+                  <X size={14} />
                 </button>
               </div>
             </div>
-            <div className="git-drawer-stack" data-detail-open={Boolean(gitDrawerDiff && gitDiffDisplayMode === "drawer")}>
-              <div className="git-drawer-source" aria-hidden={Boolean(gitDrawerDiff && gitDiffDisplayMode === "drawer")}>
-                <GitPanel
-                  projectId={activeProjectId}
-                  projectRoot={activeProject?.path}
-                  commitLog={api.git.commitLog}
-                  commitDetail={api.git.commitDetail}
-                  onOpenCommitFileDiff={openCommitFileDiff}
-                  onOpenWorkspaceFileDiff={openWorkspaceFileDiff}
-                  branchCompare={api.git.branchCompare}
-                  getStatus={api.git.status}
-                  stageFiles={api.git.stage}
-                  unstageFiles={api.git.unstage}
-                  discardFile={api.git.discard}
-                  commit={api.git.commit}
-                  branches={gitInfo.branches}
-                  currentBranch={gitInfo.current}
-                  onSwitchBranch={switchBranch}
-                  onCreateBranch={createBranch}
-                  cherryPick={api.git.cherryPick}
-                  revert={api.git.revert}
-                  reset={api.git.reset}
-                  dropCommit={api.git.dropCommit}
-                  generateCommitMessage={api.git.generateCommitMessage}
-                  gitInit={api.git.init}
-                  push={api.git.push}
-                  pull={api.git.pull}
+
+            {drawerContentPanel === "browser" && (
+              <div className="drawer-content-frame">
+                <BrowserPanel
+                  hideChromeClose
+                  onClose={() => setDrawer(null)}
+                  onToggleFullscreen={() => setBrowserFullscreen(true)}
                 />
               </div>
-              {gitDrawerDiff && gitDrawerDiff.projectId === activeProjectId && gitDiffDisplayMode === "drawer" && (
-                <div className="git-drawer-detail">
-                  <Suspense fallback={<div className="file-diff-loading">Loading...</div>}>
-                    <FileDiffViewer
-                      displayMode="drawer"
-                      onPreviewHtml={handlePreviewHtml}
-filePath={gitDrawerDiff.filePath}
-                      mode="diff"
-                      onToggleMode={toggleGitDiffDisplayMode}
-                      originalContent={gitDrawerDiff.originalContent}
-                      modifiedContent={gitDrawerDiff.modifiedContent}
-                      tabs={[{ id: gitDrawerDiff.filePath, filePath: gitDrawerDiff.filePath, label: gitDrawerDiff.label }]}
-                      activeTabId={gitDrawerDiff.filePath}
-                      onClose={closeGitDiff}
-                      readContent={readEditorFileContent}
-                      theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
-                      maxFileSizeMB={settings.maxEditorFileSizeMB}
-                    />
-                  </Suspense>
+            )}
+
+            {drawerContentPanel === "git" && settings.enableGitManagement && (
+              <div className="drawer-content-frame">
+                {activeProjectId ? (
+                  <div className="git-drawer-stack" data-detail-open={Boolean(gitDrawerDiff && gitDiffDisplayMode === "drawer")}>
+                    <div className="git-drawer-source" aria-hidden={Boolean(gitDrawerDiff && gitDiffDisplayMode === "drawer")}>
+                      <GitPanel
+                        projectId={activeProjectId}
+                        projectRoot={activeProject?.path}
+                        commitLog={api.git.commitLog}
+                        commitDetail={api.git.commitDetail}
+                        onOpenCommitFileDiff={openCommitFileDiff}
+                        onOpenWorkspaceFileDiff={openWorkspaceFileDiff}
+                        branchCompare={api.git.branchCompare}
+                        getStatus={api.git.status}
+                        stageFiles={api.git.stage}
+                        unstageFiles={api.git.unstage}
+                        discardFile={api.git.discard}
+                        commit={api.git.commit}
+                        branches={gitInfo.branches}
+                        currentBranch={gitInfo.current}
+                        onSwitchBranch={switchBranch}
+                        onCreateBranch={createBranch}
+                        cherryPick={api.git.cherryPick}
+                        revert={api.git.revert}
+                        reset={api.git.reset}
+                        dropCommit={api.git.dropCommit}
+                        generateCommitMessage={api.git.generateCommitMessage}
+                        gitInit={api.git.init}
+                        push={api.git.push}
+                        pull={api.git.pull}
+                      />
+                    </div>
+                    {gitDrawerDiff && gitDrawerDiff.projectId === activeProjectId && gitDiffDisplayMode === "drawer" && (
+                      <div className="git-drawer-detail">
+                        <Suspense fallback={<div className="file-diff-loading">Loading...</div>}>
+                          <FileDiffViewer
+                            displayMode="drawer"
+                            onPreviewHtml={handlePreviewHtml}
+                            filePath={gitDrawerDiff.filePath}
+                            mode="diff"
+                            onToggleMode={toggleGitDiffDisplayMode}
+                            onBack={closeGitDiff}
+                            originalContent={gitDrawerDiff.originalContent}
+                            modifiedContent={gitDrawerDiff.modifiedContent}
+                            tabs={[{ id: gitDrawerDiff.filePath, filePath: gitDrawerDiff.filePath, label: gitDrawerDiff.label }]}
+                            activeTabId={gitDrawerDiff.filePath}
+                            onClose={closeGitDiff}
+                            readContent={readEditorFileContent}
+                            theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
+                            maxFileSizeMB={settings.maxEditorFileSizeMB}
+                          />
+                        </Suspense>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="config-empty">{t("drawer.sourceControl")}</div>
+                )}
+              </div>
+            )}
+
+            {(drawerContentPanel === "files" || drawerContentPanel === "editor") && (
+              <div className="drawer-content-frame">
+                {/* 文件列表 + 侧栏编辑器子视图：打开编辑器时覆盖列表，保留顶部 Files/Git/Browser Tab */}
+                <div
+                  className="files-drawer-stack"
+                  data-detail-open={Boolean(editorMode === "drawer" && activeTab)}
+                >
+                  <div
+                    className="files-drawer-source"
+                    aria-hidden={Boolean(editorMode === "drawer" && activeTab)}
+                  >
+                    <LazyWrapper
+                      className="drawer-content-frame"
+                      enabled={true}
+                      threshold={0}
+                      rootMargin="50px"
+                      placeholder={
+                        <div style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          height: "100%",
+                          color: "var(--text-secondary)",
+                          fontSize: "14px"
+                        }}>
+                          加载中...
+                        </div>
+                      }
+                    >
+                      <DrawerContent
+                        hideChrome
+                        panel="files"
+                        files={files}
+                        sessions={[]}
+                        sessionsLoading={false}
+                        expandedDirs={expandedDirs}
+                        onToggleDirectory={toggleDirectory}
+                        onCollapseAllDirectories={collapseAllDirectories}
+                        onExpandAllDirectories={expandAllDirectories}
+                        pinned={drawerPinned}
+                        onTogglePin={toggleDrawerPinned}
+                        onCollapse={collapseDrawer}
+                        onClose={closeDrawer}
+                        onFileContextMenu={(node, x, y) => {
+                          setFileMenu({ node, x, y });
+                          try {
+                            const paths = api.files.getClipboardPaths();
+                            setHasClipboardFiles(paths.length > 0);
+                          } catch { setHasClipboardFiles(false); }
+                        }}
+                        onRefreshFiles={() => {
+                          refreshFiles(activeProjectId);
+                        }}
+                        onOpenFolder={() => {
+                          const p = projects.find((p) => p.id === activeProjectId);
+                          if (p) void api.files.open(p.path);
+                        }}
+                        onRefreshSessions={() => undefined}
+                        onOpenSession={() => undefined}
+                        onRenameSession={async () => undefined}
+                        onCopySession={() => undefined}
+                        onExportSession={() => undefined}
+                        onDeleteSession={() => undefined}
+                        onViewFile={viewFilePath}
+                        onOpenFile={openFilePath}
+                        onDropFiles={(targetDir, fileList) => {
+                          const paths: string[] = [];
+                          for (let i = 0; i < fileList.length; i++) {
+                            const file = fileList.item(i);
+                            if (file) {
+                              const p = api.files.getPathForFile(file);
+                              if (p) paths.push(p);
+                            }
+                          }
+                          if (paths.length > 0 && activeProjectId) {
+                            void api.files.copy(paths, targetDir).then(() => {
+                              void refreshFiles(activeProjectId);
+                              showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
+                            });
+                          }
+                        }}
+                        onMoveFiles={(sourcePaths, targetDir) => {
+                if (activeProjectId) {
+                  void api.files.move(sourcePaths, targetDir).then(() => {
+                    void refreshFiles(activeProjectId);
+                    showToast(t("app.fileMoveDone", { count: sourcePaths.length }), 2000);
+                  });
+                }
+              }}
+              onPasteFiles={(targetDir) => {
+                          try {
+                            const paths = api.files.getClipboardPaths();
+                            if (paths.length > 0 && activeProjectId) {
+                              void api.files.copy(paths, targetDir).then(() => {
+                                void refreshFiles(activeProjectId);
+                                showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
+                              });
+                            }
+                          } catch { /* 剪贴板不可用 */ }
+                        }}
+                        onCreateItem={(parentDir, name, type) => {
+                          void api.files.create(parentDir, name, type).then(() => {
+                            if (activeProjectId) void refreshFiles(activeProjectId);
+                          });
+                        }}
+                        projectRoot={projects.find((p) => p.id === activeProjectId)?.path}
+                      />
+                    </LazyWrapper>
+                  </div>
+                  {editorMode === "drawer" && activeTab && (
+                    <div className="files-drawer-detail">
+                      <Suspense fallback={<div className="file-diff-loading">Loading...</div>}>
+                        <FileDiffViewer
+                          key={activeTab.filePath}
+                          displayMode="drawer"
+                          onPreviewHtml={handlePreviewHtml}
+                          filePath={activeTab.filePath}
+                          mode={activeTab.mode}
+                          onToggleMode={activeTab.preserveDrawer ? undefined : toggleEditorMode}
+                          onBack={backToFilesList}
+                          originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
+                          modifiedContent={activeTab.modifiedContent}
+                          tabs={editorTabs}
+                          activeTabId={activeTabId}
+                          onSelectTab={selectEditorTab}
+                          onCloseTab={closeEditorTab}
+                          onClose={backToFilesList}
+                          readContent={readEditorFileContent}
+                          readOriginalContent={readEditorOriginalContent}
+                          saveContent={activeTab.allowSave ? saveEditorFileContent : undefined}
+                          theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
+                          maxFileSizeMB={settings.maxEditorFileSizeMB}
+                        />
+                      </Suspense>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
-        ) : drawerContentPanel && drawerContentPanel !== "browser" && drawerContentPanel !== "editor" && drawerContentPanel !== "git" ? (
+              </div>
+            )}
+          </>
+        ) : drawerContentPanel === "sessions" && !drawerCollapsed ? (
           <LazyWrapper
             className="drawer-content-frame"
             enabled={true}
@@ -8534,8 +8921,8 @@ filePath={gitDrawerDiff.filePath}
             }
           >
             <DrawerContent
-              panel={drawerContentPanel}
-              project={drawerContentPanel === "sessions" ? sessionsProject : undefined}
+              panel="sessions"
+              project={sessionsProject}
               files={files}
               sessions={(sessionsProjectId && sessionSourceFilter[sessionsProjectId]) ? sessions.filter(
                 (s) => !s.parentSessionPath && (sessionSourceFilter[sessionsProjectId]!)!.has(s.source ?? "pi"),
@@ -8549,7 +8936,13 @@ filePath={gitDrawerDiff.filePath}
               onTogglePin={toggleDrawerPinned}
               onCollapse={collapseDrawer}
               onClose={closeDrawer}
-              onFileContextMenu={(node, x, y) => setFileMenu({ node, x, y })}
+              onFileContextMenu={(node, x, y) => {
+                setFileMenu({ node, x, y });
+                try {
+                  const paths = api.files.getClipboardPaths();
+                  setHasClipboardFiles(paths.length > 0);
+                } catch { setHasClipboardFiles(false); }
+              }}
               onRefreshFiles={() => {
                 refreshFiles(activeProjectId);
               }}
@@ -8581,11 +8974,6 @@ filePath={gitDrawerDiff.filePath}
               onDeleteSession={deleteHistorySession}
               onViewFile={viewFilePath}
               onOpenFile={openFilePath}
-              onCreateItem={(parentDir, name, type) => {
-                void api.files.create(parentDir, name, type).then(() => {
-                  if (activeProjectId) void refreshFiles(activeProjectId);
-                });
-              }}
               projectRoot={projects.find((p) => p.id === activeProjectId)?.path}
             />
           </LazyWrapper>
@@ -8603,6 +8991,19 @@ filePath={gitDrawerDiff.filePath}
       {fileMenu && (
         <FileContextMenu
           menu={fileMenu}
+          hasClipboardFiles={hasClipboardFiles}
+          onPaste={(targetDir) => {
+            try {
+              const paths = api.files.getClipboardPaths();
+              if (paths.length > 0 && activeProjectId) {
+                void api.files.copy(paths, targetDir).then(() => {
+                  void refreshFiles(activeProjectId);
+                  showToast(t("app.fileCopyDone", { count: paths.length }), 2000);
+                });
+              }
+            } catch { /* 剪贴板不可用 */ }
+            setFileMenu(null);
+          }}
           onClose={() => setFileMenu(null)}
           onOpen={() => {
             void api.files.open(fileMenu.node.path);
@@ -8620,7 +9021,7 @@ filePath={gitDrawerDiff.filePath}
             setFileMenu(null);
           }}
           onCopyPath={() => {
-            void navigator.clipboard.writeText(fileMenu.node.path);
+            void writeClipboard(fileMenu.node.path);
             setFileMenu(null);
             showToast(t("app.pathCopied"), 1200);
           }}
@@ -8729,7 +9130,7 @@ filePath={gitDrawerDiff.filePath}
             }
           }}
           onCopyProjectPath={() => {
-            void navigator.clipboard.writeText(projectMenu.project.path);
+            void writeClipboard(projectMenu.project.path);
             showToast(t("common.copied"));
             setProjectMenu(null);
           }}
@@ -8829,7 +9230,7 @@ filePath={gitDrawerDiff.filePath}
           onCopySessionFilePath={() => {
             const path = agentMenu.agent.sessionPath;
             if (path) {
-              void navigator.clipboard.writeText(path);
+              void writeClipboard(path);
               showToast(t("common.copied"));
             }
             setAgentMenu(null);
@@ -8880,7 +9281,7 @@ filePath={gitDrawerDiff.filePath}
             void copySidebarSession(sessionMenu.projectId, sessionMenu.session);
           }}
           onCopySessionFilePath={() => {
-            void navigator.clipboard.writeText(sessionMenu.session.filePath);
+            void writeClipboard(sessionMenu.session.filePath);
             showToast(t("common.copied"));
             setSessionMenu(null);
           }}
@@ -9543,6 +9944,7 @@ filePath={gitDrawerDiff.filePath}
               onClose={() => setBrowserFullscreen(false)}
               onMinimize={() => {
                 setBrowserFullscreen(false);
+                lastToolDrawerRef.current = "browser";
                 setDrawer("browser");
                 setDrawerCollapsed(false);
               }}
@@ -9551,6 +9953,7 @@ filePath={gitDrawerDiff.filePath}
         </div>
       )}
 
+      <Toaster />
 
     </div>
   );
@@ -9615,7 +10018,7 @@ function FeedbackModal({
   const authorUrl = "https://github.com/ayuayue";
 
   async function copyReport() {
-    await navigator.clipboard.writeText(report);
+    await writeClipboard(report);
     onCopy();
   }
 

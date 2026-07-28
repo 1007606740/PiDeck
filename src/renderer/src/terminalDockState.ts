@@ -37,7 +37,11 @@ export function resolveTerminalOwner(
 	activeAgentId: string | undefined,
 	activeProjectId: string | undefined,
 ): TerminalDockOwner | undefined {
-	if (activeAgentId) return { kind: "agent", id: activeAgentId };
+	// pending-* 只是渲染层占位 id，主进程 agents map 里还不存在。
+	// 若把 Dock 挂到 pending owner 上，ensure/create 会立刻抛 Agent not found。
+	if (activeAgentId && !activeAgentId.startsWith("pending-")) {
+		return { kind: "agent", id: activeAgentId };
+	}
 	if (activeProjectId) return { kind: "project", id: activeProjectId };
 	return undefined;
 }

@@ -94,10 +94,31 @@ function overlapsUrl(
  * - @path 触发符 @ 前同样排除 : / 和 \w。
  * - /skill：skill 名只允许字母开头 + 字母数字/连字符（skill 命名规范），
  *   且 token 后一字符不能是 /（排除 /usr/bin 这类路径）。
- * - @path：路径内允许 / . _ -，不允许空白与 @。
+ * - @path：无空格路径用 @C:\a\b.txt；含空格路径用 @"C:\Users\a b\c.txt"。
  *
  * URL 中的路径段（如 https://example.com/foo）不会被识别为 chip。
  */
+/**
+ * 从 file chip 的 raw 取出真实路径。
+ * 支持 @path 与 @"path with space" 两种写法。
+ */
+export function unwrapFileChipPath(raw: string): string {
+	const body = raw.startsWith("@") ? raw.slice(1) : raw;
+	if (body.length >= 2 && body.startsWith('"') && body.endsWith('"')) {
+		return body.slice(1, -1);
+	}
+	return body;
+}
+
+/** 含空格/特殊空白的路径在插入时需要加引号，否则 chip 正则会在空格处截断。 */
+export function formatFilePathRef(path: string): string {
+	const needsQuote = /[\s"]/.test(path);
+	if (!needsQuote) return `@${path}`;
+	// 路径内若已有双引号，做简单转义；Windows 路径通常不含 "。
+	const escaped = path.replace(/"/g, '\\"');
+	return `@"${escaped}"`;
+}
+
 export function parseRichInputChips(
 	text: string,
 	validCommandNames?: Set<string>,
@@ -126,20 +147,30 @@ export function parseRichInputChips(
 		if (m.index === slashRe.lastIndex) slashRe.lastIndex++;
 	}
 
-	// @path：前置排除 : / 和 \w；必须像文件路径（含 /、\\ 或 .），避免普通 @mention 被误渲染成不可编辑 chip。
-	const atRe = /(?<![:/.\w#!~])(@[^\s@]+)/g;
+	// @path：支持两种写法
+	// 1) 无空格：@C:\foo\bar.txt / @src/a.ts
+	// 2) 含空格：@"C:\Users\a b\file.txt"（粘贴/拖拽自动加引号）
+	// 白名单：相对路径校验；绝对路径绕过白名单。
+	const atRe = /(?<![:/.\w#!~])(@(?:"[^"]+"|[^\s@"]+))/g;
 	while ((m = atRe.exec(text)) !== null) {
 		const start = m.index;
 		const end = start + m[1].length;
 		if (!overlapsUrl(start, end, urlSpans)) {
-			const seg = m[1].slice(1);
+			const rawToken = m[1];
+			// raw 形如 @path 或 @"path with space"
+			const seg = unwrapFileChipPath(rawToken);
 			if (!/[\\/.]/.test(seg)) continue;
 			const normalized = seg.replace(/\\/g, "/");
-			// 路径白名单检查：去掉 ./ 前缀后校验文件是否存在
 			const pathKey = normalized.startsWith("./") ? normalized.slice(2) : normalized;
-			if (validFilePaths && !validFilePaths.has(pathKey)) continue;
-			const label = normalized.includes("/") ? normalized.slice(normalized.lastIndexOf("/") + 1) : normalized;
-			chips.push({ start, end, raw: m[1], kind: "file", label: label || seg });
+			const isAbsPath = /^[a-zA-Z]:[\\/]/.test(pathKey) || /^\/[^/]+\//.test(pathKey);
+			if (!isAbsPath && validFilePaths && !validFilePaths.has(pathKey)) continue;
+			// 绝对路径 chip 显示完整路径；相对路径仍用文件名保持紧凑。
+			const label = isAbsPath
+				? (normalized || seg)
+				: normalized.includes("/")
+					? normalized.slice(normalized.lastIndexOf("/") + 1)
+					: normalized;
+			chips.push({ start, end, raw: rawToken, kind: "file", label: label || seg });
 		}
 		if (m.index === atRe.lastIndex) atRe.lastIndex++;
 	}

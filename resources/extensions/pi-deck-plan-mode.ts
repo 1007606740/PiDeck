@@ -132,12 +132,14 @@ function cleanStepText(text: string): string {
 }
 
 function extractTodoItems(message: string): TodoItem[] {
-	const headerMatch = message.match(/\*{0,2}Plan:\*{0,2}\s*\n/i);
-	if (!headerMatch) return [];
+	// 兼容 Plan: / **Plan:** / 中文「计划：」；不要求标题后必须立刻换行。
+	const headerMatch = message.match(/(?:\*{0,2}Plan:\*{0,2}|计划[:：])\s*/i);
+	if (!headerMatch || headerMatch.index === undefined) return [];
 
 	const items: TodoItem[] = [];
-	const planSection = message.slice(message.indexOf(headerMatch[0]) + headerMatch[0].length);
-	const numberedPattern = /^\s*(\d+)[.)]\s+\*{0,2}([^*\n]+)/gm;
+	const planSection = message.slice(headerMatch.index + headerMatch[0].length);
+	// 支持 1. / 1) / 1、 / 1:；整行再 clean，避免加粗步骤被截断。
+	const numberedPattern = /^\s*(\d+)[.)、:]\s+(.+)$/gm;
 	for (const match of planSection.matchAll(numberedPattern)) {
 		const cleaned = cleanStepText(match[2] ?? "");
 		if (cleaned.length > 3 && !cleaned.startsWith("/")) {
@@ -171,15 +173,20 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 	let toolsBeforePlanMode: string[] | undefined;
 
 	function updateWidget(ctx: ExtensionContext): void {
-		if (executionMode && todoItems.length > 0) {
-			const completed = todoItems.filter((item) => item.completed).length;
-			ctx.ui.setWidget("pi-deck-plan-todos", [
-				`计划进度 ${completed}/${todoItems.length}`,
-				...todoItems.map((item) => `${item.completed ? "☑" : "☐"} ${item.step}. ${item.text}`),
-			]);
+		// 规划阶段生成 Plan 后就应显示；以前只在 executionMode 才 setWidget，
+		// 导致用户选「继续只读/关闭弹框」时 Plan 分区永远空白。
+		if (todoItems.length === 0) {
+			ctx.ui.setWidget("pi-deck-plan-todos", undefined);
 			return;
 		}
-		ctx.ui.setWidget("pi-deck-plan-todos", undefined);
+		const completed = todoItems.filter((item) => item.completed).length;
+		const title = executionMode
+			? `计划进度 ${completed}/${todoItems.length}`
+			: `计划草案 ${todoItems.length} 步`;
+		ctx.ui.setWidget("pi-deck-plan-todos", [
+			title,
+			...todoItems.map((item) => `${item.completed ? "☑" : "☐"} ${item.step}. ${item.text}`),
+		]);
 	}
 
 	function persistState(): void {
@@ -358,19 +365,30 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 		const lastAssistant = [...event.messages].reverse().find(isAssistantMessage);
 		if (lastAssistant) todoItems = extractTodoItems(getTextContent(lastAssistant));
 		if (todoItems.length === 0) return;
+		// 先推 Plan 分区，再弹后续选择；用户无论选执行/继续/关闭都能在输入框上方看到草案。
+		updateWidget(ctx);
 		persistState();
 
 		const todoListText = todoItems.map((item) => `${item.step}. ☐ ${item.text}`).join("\n");
-		// 循环展示选单：取消「修改计划」时回到选单，避免用户误点后 agent 空停
+		// 循环展示选单：取消「修改计划」时回到选单，避免用户误点后 agent 空停。
+		// 标题前缀 [PI_DECK_PLAN_NEXT] 给桌面端识别：关闭=退出计划模式，不是「默认第一项」。
+		// 标题前缀 [PI_DECK_PLAN_NEXT]：桌面端识别后换专用 UI/取消提示。
+		// 选项用「标题|说明」编码，桌面端拆成主副文案；前缀仍用于 startsWith 匹配。
+		const PLAN_NEXT_TITLE =
+			"[PI_DECK_PLAN_NEXT] 计划草案已就绪（" + todoItems.length + " 步）";
+		const PLAN_OPT_EXECUTE = "开始执行|恢复写权限，按步骤改代码并勾进度";
+		// 「先不执行」只结束本轮、保持只读；不会自动再分析，需用户再发消息。
+		const PLAN_OPT_CONTINUE = "先不执行|结束本轮，保持只读；再发消息后 AI 才继续";
+		const PLAN_OPT_REVISE = "修改计划|写下修改意见，重新出一版计划";
 		let actionTaken = false;
 		while (!actionTaken) {
-			const choice = await ctx.ui.select("PiDeck 计划模式 — 计划已生成，请选择下一步", [
-				"执行计划（AI 开始逐步实施，并自动标记完成进度）",
-				"继续只读分析（AI 继续分析，仍不能修改文件）",
-				"修改计划（编辑计划步骤后重新提交给 AI）",
+			const choice = await ctx.ui.select(PLAN_NEXT_TITLE, [
+				PLAN_OPT_EXECUTE,
+				PLAN_OPT_CONTINUE,
+				PLAN_OPT_REVISE,
 			]);
 
-			if (choice?.startsWith("执行")) {
+			if (choice?.startsWith("开始执行")) {
 				planModeEnabled = false;
 				executionMode = true;
 				restoreNormalModeTools();
@@ -389,18 +407,23 @@ export default function piDeckPlanModeExtension(pi: ExtensionAPI): void {
 					{ triggerTurn: true, deliverAs: "followUp" },
 				);
 				actionTaken = true;
-			} else if (choice?.startsWith("修改")) {
-				const refinement = await ctx.ui.editor("如何修改计划？", "");
+			} else if (choice?.startsWith("修改计划")) {
+				// 标题前缀 [PI_DECK_PLAN_REVISE]：桌面端显示「返回上一步」而不是误当成退出计划。
+				// 取消/空内容 → refinement 为 undefined/空，循环回到三选一，不会退出 plan。
+				const refinement = await ctx.ui.editor(
+					"[PI_DECK_PLAN_REVISE] 写下你想怎么改这份计划（可返回重选）",
+					"",
+				);
 				if (refinement?.trim()) {
 					pi.sendUserMessage(refinement.trim(), { deliverAs: "followUp" });
 					actionTaken = true;
 				}
-				// 取消或空内容 → 循环回到选单
-			} else if (choice?.startsWith("继续")) {
-				// 继续只读分析 → 直接退出循环，agent 结束当前回合
+				// 取消或空内容 → 不设 actionTaken，while 循环重新弹出三选一
+			} else if (choice?.startsWith("先不执行") || choice?.startsWith("继续规划")) {
+				// 结束本轮、保持 plan 只读；不 triggerTurn，用户再发消息才会继续
 				actionTaken = true;
 			} else {
-				// 用户关闭选单（点击外部 / Esc）→ 退出 plan 模式，不发送后续消息，会话保持打开
+				// 关闭选单（X / Esc）→ 退出 plan 模式；不会默认选「开始执行」
 				setPlanMode(ctx, false);
 				actionTaken = true;
 			}

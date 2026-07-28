@@ -278,6 +278,9 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.filesShowInFolder, path) as Promise<void>,
 		readContent: (path: string) =>
 			ipcRenderer.invoke(ipcChannels.filesReadContent, path) as Promise<string>,
+		/** 读取二进制文件为 data URL（粘贴资源管理器图片文件时用） */
+		readBase64: (path: string) =>
+			ipcRenderer.invoke(ipcChannels.filesReadBase64, path) as Promise<string>,
 		writeContent: (path: string, content: string) =>
 			ipcRenderer.invoke(ipcChannels.filesWriteContent, path, content) as Promise<void>,
 		delete: (path: string, recursive?: boolean) =>
@@ -286,6 +289,10 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.filesRename, path, newName) as Promise<string>,
 		create: (parentDir: string, name: string, type: "file" | "directory") =>
 			ipcRenderer.invoke(ipcChannels.filesCreate, parentDir, name, type) as Promise<string>,
+		copy: (sourcePaths: string[], targetDir: string) =>
+			ipcRenderer.invoke(ipcChannels.filesCopy, sourcePaths, targetDir) as Promise<string[]>,
+		move: (sourcePaths: string[], targetDir: string) =>
+			ipcRenderer.invoke(ipcChannels.filesMove, sourcePaths, targetDir) as Promise<string[]>,
 		/**
 		 * Electron 32+ 已移除 File.path，拖拽/粘贴得到的 File 必须经 webUtils 解析本地路径。
 		 * 同步返回，可在 drop/paste 事件中立即使用。
@@ -753,8 +760,10 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.extensionsUninstall, source, scope) as Promise<void>,
 		install: (source: string) =>
 			ipcRenderer.invoke(ipcChannels.extensionsInstall, source) as Promise<string>,
-		toggle: (source: string, enabled: boolean) =>
-			ipcRenderer.invoke(ipcChannels.extensionsToggle, source, enabled) as Promise<void>,
+		removeBuiltIn: (source: string) =>
+			ipcRenderer.invoke(ipcChannels.extensionsRemoveBuiltIn, source) as Promise<void>,
+		restoreBuiltIn: (source: string) =>
+			ipcRenderer.invoke(ipcChannels.extensionsRestoreBuiltIn, source) as Promise<void>,
 		update: () =>
 			ipcRenderer.invoke(ipcChannels.extensionsUpdate) as Promise<PiCliUpdateResult>,
 	},
@@ -1001,7 +1010,8 @@ const api = {
 			}) => void,
 		) => subscribe(ipcChannels.agentsRuntimeState, callback),
 		/** 向 Agent 发送扩展 UI 响应（用户回答了 select/confirm/input/editor 对话框） */
-		sendUiResponse: (agentId: string, requestId: string, response: { value?: string | boolean; cancelled?: boolean; confirmed?: boolean }) =>
+		// value 允许 null：普通 select 点叉取消时发 value:null，避免 cancelled→undefined 被旧扩展回落第一项
+		sendUiResponse: (agentId: string, requestId: string, response: { value?: string | boolean | null; cancelled?: boolean; confirmed?: boolean }) =>
 			ipcRenderer.invoke(ipcChannels.agentsUiResponse, agentId, requestId, response) as Promise<void>,
 		/** 监听 Agent 扩展 UI 请求（模型通过扩展调用了 ctx.ui.select/confirm/input/editor） */
 		onUiRequest: (callback: (request: { agentId: string; requestId: string; method: string; title: string; options?: string[]; placeholder?: string; prefill?: string; allowOther?: boolean; completed?: boolean; value?: string; cancelled?: boolean; message?: string; notifyType?: "info" | "warning" | "error"; text?: string; widgetKey?: string; widgetLines?: string[]; widgetPlacement?: "aboveEditor" | "belowEditor" }) => void) =>
@@ -1170,6 +1180,19 @@ const api = {
 		 */
 		pickFiles: (options?: { title?: string }) =>
 			ipcRenderer.invoke(ipcChannels.dialogPickFiles, options) as Promise<string[]>,
+	},
+
+	// ===== 剪贴板 =====
+	clipboard: {
+		/**
+		 * 写入文本到系统剪贴板。
+		 * 使用 Electron 主进程 clipboard API，不依赖 document focus，
+		 * 避免 navigator.clipboard.writeText() 在窗口失焦时抛
+		 * "Document is not focused" 异常。
+		 */
+		writeText: (text: string) => {
+			clipboard.writeText(text);
+		},
 	},
 
 	// ===== 内置浏览器 =====

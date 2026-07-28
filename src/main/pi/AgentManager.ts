@@ -25,6 +25,7 @@ import { extractMessageText } from "./messageContent";
 import { mergeHistoryWithPreservedMessages } from "./historyMessages";
 import {
 	assertResendRootEntry,
+	collectDescendantEntryIds,
 	findLastUserMessageLine,
 	takeActiveEntryId,
 } from "./sessionEntryIds";
@@ -748,10 +749,44 @@ export class AgentManager {
 			cwd: diag?.cwd,
 		});
 
-		// 启动后先获取状态，get_messages 必须等状态就绪后再发送，
-		// 确保 pi 进程已完全加载会话文件，避免竞态导致返回空结果。
+		// 启动后先获取状态，get_messages 必须等状态就绪后再发送。
+		// 添加自动重试机制补偿 pi 初始化期间的瞬时延迟（如系统负载高、会话语料加载慢、
+		// 反病毒扫描），避免一次超时就永久标记为启动失败——用户反馈重启即可恢复说明进程本身正常。
 		void this.appLogger?.info("agent", "Agent get_state request start", { agentId: id });
-		const statePromise = client.request({ type: "get_state" });
+		// 单次 get_state 超时 45s，配合重试覆盖 pi 初始化期间的瞬时延迟。
+		const GET_STATE_TIMEOUT_MS = 45_000;
+		const GET_STATE_RETRIES = 2;
+		const GET_STATE_RETRY_DELAY_MS = 2_000;
+		void this.appLogger?.info("agent", "Agent get_state retry config", {
+			agentId: id,
+			timeoutMs: GET_STATE_TIMEOUT_MS,
+			maxRetries: GET_STATE_RETRIES,
+		});
+		/**
+		 * 带退避重试的 get_state：如果第一次超时但进程仍在运行，等待退避后重试，
+		 * 最多尝试 (1 + GET_STATE_RETRIES) 次。进程退出时立即停止重试，避免等待僵尸进程。
+		 */
+		const statePromise = (async (): Promise<RpcResponse> => {
+			for (let attempt = 0; attempt <= GET_STATE_RETRIES; attempt++) {
+				try {
+					return await client.request({ type: "get_state" }, GET_STATE_TIMEOUT_MS);
+				} catch (err) {
+					const isRunning = process.isRunning();
+					void this.appLogger?.warn("agent", `Agent get_state attempt ${attempt + 1}/${GET_STATE_RETRIES + 1} failed`, {
+						agentId: id,
+						attempt: attempt + 1,
+						totalAttempts: GET_STATE_RETRIES + 1,
+						error: err instanceof Error ? err.message : String(err),
+						processRunning: isRunning,
+					});
+					// 进程已退出 → 不再重试；重试耗尽 → 上报最终错误
+					if (!isRunning || attempt >= GET_STATE_RETRIES) throw err;
+					// 进程仍在运行：退避等待后重试（间隔递增：2s, 4s）
+					await new Promise(resolve => setTimeout(resolve, GET_STATE_RETRY_DELAY_MS * (attempt + 1)));
+				}
+			}
+			throw new Error("Unreachable: get_state retry loop exhausted");
+		})();
 		const historyLoadDecision = this.getHistoryAutoLoadDecision(input.sessionPath);
 
 		// ... 事件监听器（省略，与原来一致）
@@ -1000,10 +1035,36 @@ export class AgentManager {
 					lines.push("1. 在终端执行 pi --mode rpc 看是否能正常启动");
 					lines.push("2. 注意终端中的错误信息，根据异常信息修复");
 				} else if (!stderrText && diag.exitCode === null) {
-					lines.push("1. pi 进程可能尚未完成初始化，可在设置页增加 RPC 超时时间");
+					// 已有自动重试机制（最多 3 次 × 15s），仍超时说明并非瞬时延迟，
+					// 而是 pi 进程初始化确实受阻（如文件解析死锁、网络请求阻塞）。
+					lines.push("1. 桌面端已自动重试 get_state 3 次，但 pi 仍未响应。");
+					lines.push("2. 在终端执行 pi --mode rpc 看是否能正常启动，注意终端中的错误信息");
 				} else {
 					lines.push("1. 在终端执行 pi --mode rpc 确认 pi 能否正常启动");
 					lines.push("2. 检查设置中的 pi 路径是否正确");
+				}
+				// 坏扩展/技能是常见根因：引导到开发设置临时禁用后重试，避免用户只反复重启。
+				const startFlags = this.settingsStore.get();
+				const noExt = Boolean(startFlags.piRpcNoExtensions);
+				const noSkills = Boolean(startFlags.piRpcNoSkills);
+				lines.push("");
+				lines.push("━━━ 扩展 / 技能排查 ━━━");
+				if (noExt || noSkills) {
+					lines.push(
+						`当前启动已禁用：${[
+							noExt ? "扩展 (--no-extensions)" : null,
+							noSkills ? "技能 (--no-skills)" : null,
+						]
+							.filter(Boolean)
+							.join("、")}`,
+					);
+					lines.push("若仍失败，更可能是 pi 本体/路径/会话文件问题，而不是扩展加载。");
+				} else {
+					lines.push("若怀疑某个扩展或技能导致启动失败：");
+					lines.push("1. 打开 设置 → 开发设置");
+					lines.push("2. 临时开启「禁用扩展启动」和/或「禁用技能启动」");
+					lines.push("3. 保存后重新启动 Agent 验证");
+					lines.push("若禁用后能启动，再逐个排查 ~/.pi/agent/extensions 与 skills。");
 				}
 				lines.push("");
 				lines.push("如问题持续，可在 GitHub 提交 Issue 并附上以上信息。");
@@ -2436,34 +2497,97 @@ export class AgentManager {
 
 			const rootEntryId = typeof (entry as any)?.id === "string" ? String((entry as any).id) : undefined;
 			if (!rootEntryId) throw new Error("User message entryId missing");
-			const rootParentId = (entry as any)?.parentId;
+
+			// 硬护栏：重发只允许截断「文件中最后一条 user」。
+			// 若定位到更早的 user，descendant 截断会把其后整段历史一起删掉——这正是
+			// 「点重发把之前消息全没了」的根因；宁可失败也不误删。
+			const lastUserInFile = findLastUserMessageLine(
+				lines,
+				// 用自身文本做定位；若重复文案，findLast 已取最后一次。
+				// 下面再扫一遍确认 root 确实是全局最后一条 user（不限文本）。
+				msg.text,
+				(content) => this.extractText(content),
+			);
+			let lastUserLineIndex = lastUserInFile?.lineIndex ?? -1;
+			let lastUserEntryId =
+				typeof lastUserInFile?.entry?.id === "string"
+					? String(lastUserInFile.entry.id)
+					: undefined;
+			// 不依赖文案：扫描文件中最后一条 role=user，防止「最后一条 user 文本不同」时误判。
+			for (let i = 0; i < lines.length; i++) {
+				const line = lines[i]?.trim();
+				if (!line) continue;
+				try {
+					const parsed = JSON.parse(line) as {
+						id?: string;
+						type?: string;
+						message?: { role?: string };
+					};
+					if (parsed.type === "deleted") continue;
+					if (parsed.message?.role === "user" && typeof parsed.id === "string") {
+						lastUserLineIndex = i;
+						lastUserEntryId = parsed.id;
+					}
+				} catch {
+					/* 跳过 */
+				}
+			}
+			if (
+				lastUserEntryId &&
+				(lastUserEntryId !== rootEntryId || lastUserLineIndex !== lineIndex)
+			) {
+				void this.appLogger?.error("agent", "Prepare resend blocked: root is not last user", {
+					agentId,
+					messageId,
+					rootEntryId: rootEntryId.slice(0, 12),
+					lastUserEntryId: lastUserEntryId.slice(0, 12),
+					rootLine: lineIndex,
+					lastUserLine: lastUserLineIndex,
+				});
+				throw new Error(
+					"Resend root is not the last user message; refusing to truncate earlier history",
+				);
+			}
+
+			// 只 tombstone「该 user + 其后代」；root 之前的历史一律保留。
+			// 不用 re-parent：重发语义是丢掉本轮失败回复再重跑，而不是把失败分支挂回父节点。
+			const removeIds = collectDescendantEntryIds(lines, rootEntryId);
 
 			await this.backupSessionFile(sessionPath);
 
-			// 只删该用户消息条目本身；它的直系子节点（若有）通过 re-parenting 指向父节点，
-			// 避免 orphan 导致 pi 丢弃整个后代分支。
-			// 这样之前的 assistant 回复内容得以保留，重发后看起来就像原地替换了失败消息。
-			if (rootEntryId && rootParentId !== undefined) {
-				for (let i = 0; i < lines.length; i++) {
-					if (i === lineIndex) continue;
-					const childLine = lines[i]?.trim();
-					if (!childLine) continue;
-					try {
-						const child = JSON.parse(childLine);
-						if (child.parentId === rootEntryId) {
-							child.parentId = rootParentId;
-							lines[i] = JSON.stringify(child);
-						}
-					} catch { /* 跳过无法解析的行 */ }
+			let removed = 0;
+			for (let i = 0; i < lines.length; i++) {
+				const line = lines[i]?.trim();
+				if (!line) continue;
+				try {
+					const parsed = JSON.parse(line) as { id?: string; type?: string };
+					if (!parsed?.id || parsed.type === "deleted") continue;
+					if (!removeIds.has(parsed.id)) continue;
+					lines[i] = JSON.stringify({
+						type: "deleted",
+						originalEntryId: parsed.id,
+						ts: Date.now(),
+						reason: "resend-truncate",
+					});
+					removed += 1;
+				} catch {
+					/* 跳过无法解析的行 */
 				}
 			}
 
-			lines[lineIndex] = JSON.stringify({
-				type: "deleted",
-				originalEntryId: rootEntryId,
-				ts: Date.now(),
-				reason: "resend-truncate",
-			});
+			// 兜底：定位行本身若因 id 异常未进集合，至少 tombstone 该行。
+			if (lineIndex >= 0 && lineIndex < lines.length) {
+				const current = lines[lineIndex]?.trim();
+				if (current && !current.includes('"type":"deleted"')) {
+					lines[lineIndex] = JSON.stringify({
+						type: "deleted",
+						originalEntryId: rootEntryId,
+						ts: Date.now(),
+						reason: "resend-truncate",
+					});
+					removed += 1;
+				}
+			}
 
 			await writeFile(sessionHostPath, lines.join("\n"), "utf8");
 
@@ -2496,7 +2620,7 @@ export class AgentManager {
 			void this.appLogger?.info("agent", "Prepare resend completed", {
 				agentId,
 				messageId,
-				removed: 1,
+				removed,
 				elapsedMs: Date.now() - startTime,
 			});
 
@@ -3113,16 +3237,29 @@ export class AgentManager {
 			return;
 		}
 
-		const request = {
-			agentId,
-			requestId,
-			method,
-			title: String(typed.title ?? typed.question ?? ""),
-			options: typed.options as string[] | undefined,
-			placeholder: typed.placeholder as string | undefined,
-			prefill: typed.prefill as string | undefined,
-			allowOther: typed.allowOther === true,
-		};
+		// 批量 ask envelope：扩展把 questions JSON 塞进 input 的 title；
+		// 桌面端识别后渲染 Tab 问卷，而不是把整段 JSON 当普通输入题。
+		const rawTitle = String(typed.title ?? typed.question ?? "");
+		const batchEnvelope = this.tryParseBatchAskEnvelope(rawTitle);
+		const request = batchEnvelope
+			? {
+					agentId,
+					requestId,
+					method: "batch_ask" as const,
+					title: `问卷（${batchEnvelope.questions.length} 题）`,
+					batchQuestions: batchEnvelope.questions,
+					batchReview: batchEnvelope.review === true,
+			  }
+			: {
+					agentId,
+					requestId,
+					method,
+					title: rawTitle,
+					options: typed.options as string[] | undefined,
+					placeholder: typed.placeholder as string | undefined,
+					prefill: typed.prefill as string | undefined,
+					allowOther: typed.allowOther === true,
+			  };
 
 		// 记录 pending UI 请求，用于 abort 时自动 cancel
 		if (!this.pendingUIRequests.has(agentId)) {
@@ -3146,20 +3283,23 @@ export class AgentManager {
 	 * 发送 Extension UI 响应（extension_ui_response）到 pi 的 stdin。
 	 * 同时更新对应卡片消息的状态。
 	 */
-	sendUIResponse(agentId: string, requestId: string, response: { value?: string | boolean; cancelled?: boolean; confirmed?: boolean }) {
+	sendUIResponse(agentId: string, requestId: string, response: { value?: string | boolean | null; cancelled?: boolean; confirmed?: boolean }) {
 		const runtime = this.agents.get(agentId);
 		if (!runtime) return;
 
 		// 写入 extension_ui_response 到 pi 的 stdin
 
+		// 写入 extension_ui_response。
+		// 注意：普通 select 取消应走 value:null（见 abort / 渲染层 respondCancel），
+		// 不要对 select 误发 cancelled:true，否则 pi 返回 undefined，旧 ask 扩展会选第一项。
 		const extPayload: Record<string, unknown> = {
 			type: "extension_ui_response",
 			id: requestId,
-			value: response.value,
 		};
-		// pi 的 ctx.ui.confirm() 检查 confirmed 字段，ctx.ui.select/input 检查 value
+		// value 允许显式 null（取消 select）；undefined 表示字段未提供则不写入。
+		if ("value" in response) extPayload.value = response.value;
+		// pi 的 ctx.ui.confirm() 检查 confirmed 字段
 		if ("confirmed" in response) extPayload.confirmed = response.confirmed;
-		// 取消时发 cancelled: true
 		if (response.cancelled) extPayload.cancelled = true;
 		runtime.process.client.sendRaw(extPayload);
 
@@ -3499,60 +3639,8 @@ export class AgentManager {
 		const argsMeta = typeof args === "string" ? args : this.truncateForDetail(this.safeJson(args));
 		// 提取 ask_question 详情用于渲染提问卡片；支持批量（questions 数组）和单问题两种格式。
 		// pi RPC 返回格式可能为 result.details 嵌套 或 result 顶层（无 details 包装）
-		const askDetails = (() => {
-			if (toolName !== "ask_question" || !result || typeof result !== "object") return undefined;
-			// 格式 1: result.details.question 或 result.details.answers（批量）
-			if ((result as any).details?.question || Array.isArray((result as any).details?.answers)) {
-				return (result as any).details;
-			}
-			// 格式 2: result.question（无 details 包装）
-			if ((result as any).question) {
-				return result as any;
-			}
-			// 格式 3: 从 args 回退读取提问内容（当 result 仅为简单值如选中项字符串时）
-			let parsedArgs: unknown = args;
-			if (typeof args === "string") { try { parsedArgs = JSON.parse(args); } catch { parsedArgs = undefined; } }
-			if (parsedArgs && typeof parsedArgs === "object" && (parsedArgs as any).question) {
-				return {
-					question: (parsedArgs as any).question,
-					options: (parsedArgs as any).options,
-					answer: typeof result === "string" ? result : (result as any).value ?? (result as any).answer,
-					answered: true,
-					answerLabel: typeof result === "string" ? result : (result as any).value ?? (result as any).answer,
-				};
-			}
-			return undefined;
-		})();
-		const askCard = (() => {
-			if (!askDetails) return undefined;
-			// abort 时覆写 answer 为 null、answered 为 false，确保卡片显示"已取消"
-			const aborted = this.abortedDuringAsk.has(agentId);
-			// 单问题格式：details.question (string), details.answer
-			if (askDetails.question) {
-				return {
-					question: askDetails.question,
-					type: askDetails.type,
-					answered: aborted ? false : askDetails.answered,
-					answer: aborted ? null : askDetails.answer,
-					answerLabel: aborted ? undefined : askDetails.answerLabel,
-					options: askDetails.options,
-				};
-			}
-			// 批量格式：details.questions / details.answers 数组，取第一组问答展示
-			if (Array.isArray(askDetails.answers) && askDetails.answers.length > 0) {
-				const firstQuestion = Array.isArray(askDetails.questions) ? askDetails.questions[0] : undefined;
-				const firstAnswer = askDetails.answers[0];
-				return {
-					question: firstQuestion?.question ?? String(firstAnswer.id ?? ""),
-					type: firstAnswer.type ?? firstQuestion?.type ?? "input",
-					answered: !askDetails.cancelled && firstAnswer.value !== null,
-					answer: firstAnswer.value,
-					answerLabel: firstAnswer.label,
-					options: firstQuestion?.options,
-				};
-			}
-			return undefined;
-		})();
+		const askDetails = this.extractAskQuestionDetails(toolName, result, args);
+		const askCard = this.buildAskCard(agentId, askDetails);
 		const meta = {
 			status,
 			toolName,
@@ -3843,37 +3931,7 @@ export class AgentManager {
 						isError,
 					);
 					// 从历史工具结果中提取 ask_question 详情，用于渲染提问卡片（支持单问题和批量格式）。
-					const askCard = (() => {
-						if (toolName !== "ask_question" || !typed.details) return undefined;
-						// abort 时发 value:null 导致 answer 为 null，但 pi 可能已默认选了第一选项。
-						// 覆写 answer 为 null、answered 为 false，确保卡片显示"已取消"。
-						const aborted = this.abortedDuringAsk.has(agentId);
-						// 单问题格式：details.question (string), details.answer
-						if (typed.details.question) {
-							return {
-								question: typed.details.question,
-								type: typed.details.type,
-								answered: aborted ? false : typed.details.answered,
-								answer: aborted ? null : typed.details.answer,
-								answerLabel: aborted ? undefined : typed.details.answerLabel,
-								options: typed.details.options,
-							};
-						}
-						// 批量格式：details.questions / details.answers 数组，取第一组问答
-						if (Array.isArray(typed.details.answers) && typed.details.answers.length > 0) {
-							const firstQuestion = Array.isArray(typed.details.questions) ? typed.details.questions[0] : undefined;
-							const firstAnswer = typed.details.answers[0];
-							return {
-								question: firstQuestion?.question ?? String(firstAnswer.id ?? ""),
-								type: firstAnswer.type ?? firstQuestion?.type ?? "input",
-								answered: !typed.details.cancelled && firstAnswer.value !== null,
-								answer: firstAnswer.value,
-								answerLabel: firstAnswer.label,
-								options: firstQuestion?.options,
-							};
-						}
-						return undefined;
-					})();
+					const askCard = this.buildAskCard(agentId, this.extractAskQuestionDetails(toolName, typed, historicalCall?.args));
 					// entryIndex 已在上方 takeActiveEntryId 推进
 					return [{
 						id: `${agentId}-history-${currentEntryId ?? index}`,
@@ -4025,6 +4083,183 @@ export class AgentManager {
 	private extractToolDetails(result: unknown) {
 		if (!result || typeof result !== "object") return undefined;
 		return (result as any).details;
+	}
+
+	/**
+	 * 解析批量 ask envelope（扩展把 questions JSON 放在 input title 里）。
+	 * 识别键：__piDeckBatchAsk，桌面端据此渲染 Tab 问卷而非普通输入框。
+	 */
+	private tryParseBatchAskEnvelope(title: string): {
+		review?: boolean;
+		questions: Array<Record<string, unknown>>;
+	} | null {
+		const raw = title?.trim();
+		if (!raw || raw[0] !== "{") return null;
+		try {
+			const parsed = JSON.parse(raw) as Record<string, unknown>;
+			if (parsed?.__piDeckBatchAsk !== 1) return null;
+			if (!Array.isArray(parsed.questions) || parsed.questions.length === 0) return null;
+			return {
+				review: parsed.review === true,
+				questions: parsed.questions as Array<Record<string, unknown>>,
+			};
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * 从工具 result/args 中提取 ask_question details。
+	 * 兼容：details 嵌套、顶层 question、仅 args 有 question、批量 answers。
+	 */
+	private extractAskQuestionDetails(
+		toolName: string,
+		result: unknown,
+		args: unknown,
+	): Record<string, any> | undefined {
+		if (toolName !== "ask_question") return undefined;
+
+		// 格式 1: result.details.question 或 result.details.answers（批量）
+		if (result && typeof result === "object") {
+			const r = result as any;
+			if (r.details?.question || Array.isArray(r.details?.answers) || Array.isArray(r.details?.questions)) {
+				return r.details;
+			}
+			// 格式 2: result 顶层（无 details 包装）——含历史 toolResult 的 typed.details
+			if (r.question || Array.isArray(r.answers) || Array.isArray(r.questions)) {
+				return r;
+			}
+		}
+
+		// 格式 3: result 仅为简单值时，从 args 回退读取提问内容
+		let parsedArgs: unknown = args;
+		if (typeof args === "string") {
+			try {
+				parsedArgs = JSON.parse(args);
+			} catch {
+				parsedArgs = undefined;
+			}
+		}
+		if (parsedArgs && typeof parsedArgs === "object") {
+			const a = parsedArgs as any;
+			// 批量 args.questions
+			if (Array.isArray(a.questions) && a.questions.length > 0) {
+				const answerValue =
+					typeof result === "string"
+						? result
+						: (result as any)?.value ?? (result as any)?.answer ?? null;
+				return {
+					questions: a.questions,
+					answers: answerValue != null ? [{ id: a.questions[0]?.id ?? "default", value: answerValue, label: String(answerValue) }] : [],
+					cancelled: false,
+				};
+			}
+			if (a.question) {
+				const answerValue =
+					typeof result === "string"
+						? result
+						: (result as any)?.value ?? (result as any)?.answer ?? null;
+				return {
+					question: a.question,
+					type: a.type,
+					options: a.options,
+					answer: answerValue,
+					// 有实际答案就标 answered，避免「未回答」假阴性
+					answered: answerValue !== null && answerValue !== undefined,
+					answerLabel: answerValue != null ? String(answerValue) : undefined,
+				};
+			}
+		}
+		return undefined;
+	}
+
+	/**
+	 * 把 ask_question details 转成前端 ToolCard 用的 _askCard。
+	 * 业务规则：
+	 * - answered 优先看显式字段；否则有非 null answer 也算已回答（兼容旧 result）
+	 * - 批量：展示全部 Q&A，不只第一题（之前只取第一题导致回答后仍像「未回答」）
+	 * - abort 中：强制未回答
+	 */
+	private buildAskCard(
+		agentId: string,
+		askDetails: Record<string, any> | undefined,
+	): Record<string, unknown> | undefined {
+		if (!askDetails) return undefined;
+		const aborted = this.abortedDuringAsk.has(agentId);
+
+		// 批量：questions + answers
+		if (Array.isArray(askDetails.questions) || Array.isArray(askDetails.answers)) {
+			const questions = Array.isArray(askDetails.questions) ? askDetails.questions : [];
+			const answers = Array.isArray(askDetails.answers) ? askDetails.answers : [];
+			const cancelled = aborted || askDetails.cancelled === true;
+			const items = questions.map((q: any, i: number) => {
+				const a = answers.find((x: any) => x?.id === q?.id) ?? answers[i];
+				const value = cancelled ? null : a?.value ?? null;
+				const hasAnswer = value !== null && value !== undefined;
+				return {
+					id: String(q?.id ?? a?.id ?? `q${i + 1}`),
+					question: String(q?.question ?? a?.id ?? ""),
+					type: String(a?.type ?? q?.type ?? "input"),
+					answered: !cancelled && hasAnswer,
+					answer: value,
+					answerLabel: cancelled ? undefined : a?.label ?? (hasAnswer ? String(value) : undefined),
+					options: q?.options,
+					wasCustom: a?.wasCustom === true,
+				};
+			});
+			// 无 questions 只有 answers 时兜底
+			if (items.length === 0 && answers.length > 0) {
+				for (const a of answers) {
+					const value = cancelled ? null : a?.value ?? null;
+					const hasAnswer = value !== null && value !== undefined;
+					items.push({
+						id: String(a?.id ?? "q"),
+						question: String(a?.id ?? ""),
+						type: String(a?.type ?? "input"),
+						answered: !cancelled && hasAnswer,
+						answer: value,
+						answerLabel: cancelled ? undefined : a?.label ?? (hasAnswer ? String(value) : undefined),
+						options: undefined,
+						wasCustom: a?.wasCustom === true,
+					});
+				}
+			}
+			const anyAnswered = items.some((it) => it.answered);
+			const first = items[0];
+			// 批量标题用「问卷（N 题）」而不是第一题文案，避免展开区与标题重复。
+			return {
+				question: `问卷（${items.length} 题）`,
+				type: "batch",
+				answered: !cancelled && anyAnswered,
+				// 顶层 answer 仅作兜底；真正展示走 items
+				answer: first?.answer ?? null,
+				answerLabel: first?.answerLabel,
+				options: undefined,
+				cancelled,
+				items,
+			};
+		}
+
+		// 单问题
+		if (askDetails.question) {
+			const rawAnswer = aborted ? null : askDetails.answer;
+			// answered 显式 false/true 优先；否则看 answer 是否非空（兼容旧数据未写 answered）
+			const hasAnswer = rawAnswer !== null && rawAnswer !== undefined && rawAnswer !== "";
+			const answered = aborted
+				? false
+				: typeof askDetails.answered === "boolean"
+					? askDetails.answered
+					: hasAnswer;
+			return {
+				question: askDetails.question,
+				type: askDetails.type,
+				answered,
+				answer: aborted ? null : askDetails.answer,
+				answerLabel: aborted ? undefined : askDetails.answerLabel ?? (hasAnswer ? String(rawAnswer) : undefined),
+				options: askDetails.options,
+			};
+		}
+		return undefined;
 	}
 
 	/** 对超长工具文本做首尾截断，保留头部和尾部以兼顾开头信息和错误堆栈。 */

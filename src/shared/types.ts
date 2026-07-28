@@ -417,6 +417,23 @@ export type AppSettings = {
 	 *  开启后自动跳过启动和定时检测，设置页中检测按钮也禁用。 */
 	disableUpdateCheck: boolean;
 
+	// ── Agent 启动诊断/加速（开发设置） ──
+	/**
+	 * 启动 pi RPC 时附加 --offline，跳过 pi 启动期模型目录网络刷新。
+	 * 桌面端模型列表来自本地 models.json，默认开启以加快冷启动。
+	 */
+	piRpcOffline: boolean;
+	/**
+	 * 启动 pi RPC 时附加 --no-extensions，跳过扩展发现与加载。
+	 * 用于排查「坏扩展导致 RPC 起不来」；开启后 todo/plan/ask 等扩展不可用。
+	 */
+	piRpcNoExtensions: boolean;
+	/**
+	 * 启动 pi RPC 时附加 --no-skills，跳过 skills 发现与加载。
+	 * 用于排查/加速；开启后技能命令与 skill 相关能力不可用。
+	 */
+	piRpcNoSkills: boolean;
+
 	// ── 侧栏 UI 状态 ──
 	/**
 	 * 左侧边栏处于展开状态的项目 id 列表（含 builtin-chat）。
@@ -424,6 +441,10 @@ export type AppSettings = {
 	 * 缺省时由渲染层按「仅展开 chat」处理。
 	 */
 	sidebarExpandedProjectIds?: string[];
+
+	// ── 扩展管理 ──
+	/** 用户手动移除的内置扩展列表（如 pi-deck-todo.ts），下次启动不再自动部署。 */
+	removedBuiltInExtensions: string[];
 
 };
 
@@ -821,6 +842,8 @@ export type PiPackageInfo = {
 export type PiExtensionListResult = {
 	extensions: PiExtensionSummary[];
 	raw: string;
+	/** 检测到的扩展冲突：内置扩展因与三方扩展同名而被自动禁用 */
+	conflicts?: { builtIn: string; thirdParty: string }[];
 };
 
 export type PiCliUpdateResult = {

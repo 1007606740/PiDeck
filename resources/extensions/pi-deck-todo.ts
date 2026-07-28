@@ -60,6 +60,10 @@ export default function (pi: ExtensionAPI) {
 	// 内存状态：session_start / session_tree 时从会话快照重建
 	let todos: Todo[] = [];
 	let nextId = 1;
+	// 已完成的项在下一轮清理前暂存，用于 widget 显示「最近完成」
+	let recentlyDone: Todo[] = [];
+	// widget 折叠状态
+	let widgetCollapsed = false;
 	// 是否已让位给第三方 todo 扩展；让位后不显示 widget、不重建状态、命令转引导
 	let yielded = false;
 
@@ -78,17 +82,49 @@ export default function (pi: ExtensionAPI) {
 		pi.appendEntry(ENTRY_TYPE, { todos, nextId });
 	}
 
-	/** 刷新桌面端 widget：空列表清除，非空显示完成进度与各项 */
+	/** 刷新桌面端 widget：按状态分组，已完成项折叠隐藏 */
 	function updateWidget(ctx: ExtensionContext): void {
-		if (todos.length > 0) {
-			const done = todos.filter((t) => t.done).length;
-			ctx.ui.setWidget(WIDGET_KEY, [
-				`待办事项 ${done}/${todos.length}`,
-				...todos.map((t) => `${t.done ? "☑" : "☐"} #${t.id} ${t.text}`),
-			]);
-		} else {
+		const pending = todos.filter((t) => !t.done);
+		const done = todos.filter((t) => t.done);
+		if (pending.length === 0 && done.length === 0 && recentlyDone.length === 0) {
 			ctx.ui.setWidget(WIDGET_KEY, undefined);
+			return;
 		}
+		const lines: string[] = [];
+		if (widgetCollapsed) {
+			lines.push(`${done.length}/${todos.length}`);
+		} else {
+			if (pending.length > 0) {
+				lines.push("── 待办 ──");
+				for (const t of pending) {
+					lines.push(`☐ #${t.id} ${t.text}`);
+				}
+			}
+			if (done.length > 0) {
+				lines.push("── 已完成 ──");
+				for (const t of done) {
+					lines.push(`☑ #${t.id} ${t.text}`);
+				}
+			}
+			if (recentlyDone.length > 0 && done.length === 0 && pending.length > 0) {
+				lines.push("── 最近完成 ──");
+				for (const t of recentlyDone) {
+					lines.push(`☑ ${t.text}`);
+				}
+			}
+		}
+		ctx.ui.setWidget(WIDGET_KEY, lines);
+	}
+
+	/** 新轮次清理已完成项：移出待办列表但保留在 recentlyDone 中供引用 */
+	function cleanupCompleted(ctx: ExtensionContext): void {
+		const pending = todos.filter((t) => !t.done);
+		const done = todos.filter((t) => t.done);
+		if (done.length > 0) {
+			recentlyDone = [...done.slice(-3), ...recentlyDone].slice(0, 5);
+		}
+		todos = pending;
+		persistState();
 	}
 
 	/**
@@ -195,29 +231,43 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// /todo 命令：用户手动查看当前列表（单数命名，避免与 plan-mode 的 /todos 冲突）
+	// /todo 命令：用户手动查看当前列表，追加 collapse 参数控制折叠状态
 	pi.registerCommand("todo", {
-		description: "查看当前分支待办事项",
-		handler: async (_args, ctx) => {
-			// 被第三方覆盖时转而引导，避免显示本扩展的陈旧/空状态
+		description: "查看/折叠/展开当前分支待办事项",
+		handler: async (args, ctx) => {
 			if (!isOwnTodo()) {
 				ctx.ui.notify("Todo 工具由其他扩展提供，请使用其对应命令（如 /todos）查看。", "info");
+				return;
+			}
+			// /todo collapse / /todo expand
+			if (args === "collapse") {
+				widgetCollapsed = true;
+				updateWidget(ctx);
+				return;
+			}
+			if (args === "expand") {
+				widgetCollapsed = false;
+				updateWidget(ctx);
 				return;
 			}
 			if (todos.length === 0) {
 				ctx.ui.notify("还没有待办事项，可以告诉 AI 添加。", "info");
 				return;
 			}
-			const done = todos.filter((t) => t.done).length;
-			ctx.ui.notify(
-				[`Todos ${done}/${todos.length}`, ...todos.map((t) => `${t.done ? "☑" : "☐"} #${t.id} ${t.text}`)].join("\n"),
-				"info",
-			);
+			const pending = todos.filter((t) => !t.done);
+			const done = todos.filter((t) => t.done);
+			let msg = `Todos ${done.length}/${todos.length}`;
+			if (pending.length > 0) {
+				msg += `\n── 待办 ──\n${pending.map((t) => `☐ #${t.id} ${t.text}`).join("\n")}`;
+			}
+			if (done.length > 0) {
+				msg += `\n── 已完成 ──\n${done.map((t) => `☑ #${t.id} ${t.text}`).join("\n")}`;
+			}
+			ctx.ui.notify(msg, "info");
 		},
 	});
 
-	// 会话启动 / 分支切换时从快照重建状态并刷新 widget。
-	// session_start 同时承担让位策略 2 的复核：若被后加载的第三方覆盖则 yielded。
+	// 会话启动 / 分支切换时从快照重建状态、清理已完成项、刷新 widget。
 	pi.on("session_start", async (_event, ctx) => {
 		if (!isOwnTodo()) {
 			yielded = true;
@@ -225,6 +275,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		yielded = false;
 		reconstructState(ctx);
+		cleanupCompleted(ctx);
 		updateWidget(ctx);
 	});
 

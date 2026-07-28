@@ -118,6 +118,8 @@ export function BrowserPanel(props: {
 	onToggleFullscreen?: () => void;
 	/** 最小化：关闭全屏弹框，回到抽屉模式。 */
 	onMinimize?: () => void;
+	/** 嵌入右侧统一 Tab 栏时隐藏关闭按钮，避免与 drawer-chrome 重复 */
+	hideChromeClose?: boolean;
 }) {
 	const { onClose, onMinimize, onToggleFullscreen } = props;
 	const [initialTab] = useState(() => getInitialActiveTab());
@@ -408,9 +410,12 @@ export function BrowserPanel(props: {
 						<button className="browser-tabbar-btn" onClick={onToggleFullscreen} title={t("browser.fullscreen")}>
 							<Maximize2 size={13} />
 						</button>
-						<button className="browser-tabbar-btn" onClick={onClose} title={t("common.close")}>
-							<X size={14} />
-						</button>
+						{/* 统一 drawer chrome 已提供关闭；此处仅在独立/旧布局时保留 */}
+						{!props.hideChromeClose && (
+							<button className="browser-tabbar-btn" onClick={onClose} title={t("common.close")}>
+								<X size={14} />
+							</button>
+						)}
 					</div>
 				)}
 			</div>

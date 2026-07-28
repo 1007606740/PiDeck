@@ -9,6 +9,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { showNotice } from "../../utils/notice";
+import { writeClipboard } from "../../utils/clipboard";
 import { ChevronDown, ChevronUp, MoreHorizontal, Plus, X } from "lucide-react";
 import type { PiDesktopApi } from "../../../../preload";
 import type { TerminalTab } from "../../../../shared/types";
@@ -164,6 +165,8 @@ export function TerminalDock(props: {
 
 	useEffect(() => {
 		if (!open || !contentReady || !sessionKey) return;
+		// pending-* 是渲染层占位，主进程还没有对应 agent runtime
+		if (sessionKey.startsWith("pending-")) return;
 		let cancelled = false;
 		async function loadTabs() {
 			setLoading(true);
@@ -179,6 +182,17 @@ export function TerminalDock(props: {
 				);
 				setTabs(nextTabs.map(stripReplayBuffer));
 				setActiveTabId(nextTabs[0]?.id ?? "");
+			} catch (error) {
+				// ensure 失败不能变成 unhandled rejection：Mac 上会表现为启动 agent 后终端报错/像闪退
+				if (!cancelled) {
+					setTabs([]);
+					setActiveTabId("");
+					const message = error instanceof Error ? error.message : String(error);
+					// Agent 尚未就绪时的竞态：静默跳过，等真实 agentId 再挂载
+					if (!/Agent not found/i.test(message)) {
+						showNotice(message, 4000, "error");
+					}
+				}
 			} finally {
 				if (!cancelled) setLoading(false);
 			}
@@ -193,9 +207,15 @@ export function TerminalDock(props: {
 	useEffect(() => {
 		if (!open || !contentReady) return;
 		let cancelled = false;
-		void props.terminal.shells().then((list) => {
-			if (!cancelled) setShells(list);
-		});
+		void props.terminal
+			.shells()
+			.then((list) => {
+				if (!cancelled) setShells(list);
+			})
+			.catch(() => {
+				// shell 列表失败不阻断终端主体
+				if (!cancelled) setShells([]);
+			});
 		return () => {
 			cancelled = true;
 		};
@@ -302,25 +322,39 @@ export function TerminalDock(props: {
 	/* copyNotice cleanup 已禁用（改为 toast sonner） */
 
 	async function addTab() {
-		if (!sessionKey) return;
-		const next = await props.terminal.create(sessionKey, undefined, effectiveCwd);
-		setTabs((current) => [...current, stripReplayBuffer(next)]);
-		setActiveTabId(next.id);
-		props.onCollapsedChange(false);
+		if (!sessionKey || sessionKey.startsWith("pending-")) return;
+		try {
+			const next = await props.terminal.create(sessionKey, undefined, effectiveCwd);
+			setTabs((current) => [...current, stripReplayBuffer(next)]);
+			setActiveTabId(next.id);
+			props.onCollapsedChange(false);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			showNotice(message, 4000, "error");
+		}
 	}
 
 	/** 用指定 shell 创建新终端 tab */
 	async function addTabWithShell(shell: string) {
-		if (!sessionKey) return;
-		const next = await props.terminal.create(sessionKey, shell, effectiveCwd);
-		setTabs((current) => [...current, stripReplayBuffer(next)]);
-		setActiveTabId(next.id);
-		props.onCollapsedChange(false);
-		setShellMenuOpen(false);
+		if (!sessionKey || sessionKey.startsWith("pending-")) return;
+		try {
+			const next = await props.terminal.create(sessionKey, shell, effectiveCwd);
+			setTabs((current) => [...current, stripReplayBuffer(next)]);
+			setActiveTabId(next.id);
+			props.onCollapsedChange(false);
+			setShellMenuOpen(false);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			showNotice(message, 4000, "error");
+		}
 	}
 
 	async function closeTab(tab: TerminalTab) {
-		await props.terminal.close(tab.id);
+		try {
+			await props.terminal.close(tab.id);
+		} catch {
+			// tab 可能已退出；继续做本地清理
+		}
 		delete buffersRef.current[tab.id];
 		const nextTabs = tabs.filter((item) => item.id !== tab.id);
 		setTabs(nextTabs);
@@ -351,7 +385,7 @@ export function TerminalDock(props: {
 		// xterm 默认右键会落到浏览器菜单；选区存在时直接复制，符合桌面终端的右键复制习惯。
 		event.preventDefault();
 		event.stopPropagation();
-		await navigator.clipboard.writeText(selection);
+		await writeClipboard(selection);
 		showNotice(t("terminal.copied"), 1200);
 		xtermRef.current?.focus();
 	}

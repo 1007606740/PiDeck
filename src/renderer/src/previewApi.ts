@@ -171,7 +171,11 @@ let previewSettings: AppSettings = {
 	fontFamilyBaseCustom: "",
 	fontFamilyMono: "commit-mono",
 	fontFamilyMonoCustom: "",
+	removedBuiltInExtensions: [],
 	disableUpdateCheck: false,
+	piRpcOffline: true,
+	piRpcNoExtensions: false,
+	piRpcNoSkills: false,
 };
 
 export function createPreviewApi(): PiDesktopApi {
@@ -285,8 +289,11 @@ export function createPreviewApi(): PiDesktopApi {
 			open: async () => undefined,
 			showInFolder: async () => undefined,
 			readContent: async () => "",
+			readBase64: async () => "",
 			writeContent: async () => undefined,
 			delete: async () => undefined,
+			copy: async () => [],
+			move: async () => [],
 			rename: async () => "",
 			create: async () => "",
 			getPathForFile: () => "",
@@ -538,7 +545,8 @@ export function createPreviewApi(): PiDesktopApi {
 			}),
 			uninstall: async () => undefined,
 			install: async (_source: string) => "",
-			toggle: async () => undefined,
+			removeBuiltIn: async () => undefined,
+			restoreBuiltIn: async () => undefined,
 			update: async () => ({
 				command: "pi update --extensions --no-approve",
 				output: "Preview mode: extensions update output",
@@ -870,6 +878,10 @@ export function createPreviewApi(): PiDesktopApi {
 			load: async () => ({ content: "", lastEditedAt: 0, cursorPosition: 0 }),
 			save: async () => {},
 			export: async () => false,
+		},
+
+		clipboard: {
+			writeText: async (_text: string) => {},
 		},
 	};
 }

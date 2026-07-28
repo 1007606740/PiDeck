@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { Check, Eye, EyeOff, ChevronDown } from "lucide-react";
 import { t } from "../i18n";
+import { writeClipboard } from "../utils/clipboard";
 import { PROVIDER_API_OPTIONS, API_TYPE_LABELS, API_TYPE_DESCRIPTIONS, API_TYPE_DESCRIPTIONS_EN } from "./providerHeaders";
 
 // ── 复制到剪贴板工具 ──────────────────────────────────
@@ -10,13 +11,9 @@ export function CopyButton(props: { text: string }) {
 	const [copied, setCopied] = useState(false);
 	const handleCopy = async (e: MouseEvent) => {
 		e.stopPropagation();
-		try {
-			await navigator.clipboard.writeText(props.text);
-			setCopied(true);
-			setTimeout(() => setCopied(false), 1500);
-		} catch {
-			/* 静默失败 */
-		}
+		await writeClipboard(props.text);
+		setCopied(true);
+		setTimeout(() => setCopied(false), 1500);
 	};
 	return (
 		<button

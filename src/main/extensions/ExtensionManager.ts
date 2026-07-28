@@ -9,7 +9,7 @@ import { toWindowsHostPath, type WslEnvironment } from "../wsl/WslPaths";
 type SettingsProvider = () => AppSettings;
 
 /** PiDeck 内置扩展列表，用于在扫描不到时仍展示在扩展管理页中。 */
-const BUILT_IN_EXTENSIONS = [
+export const BUILT_IN_EXTENSIONS = [
 	"pi-deck-ask-question.ts",
 	"pi-deck-nul-redirect-fix.ts",
 	"pi-deck-plan-mode.ts",
@@ -40,6 +40,10 @@ export class ExtensionManager {
 	constructor(
 		private readonly locator: PiLocator,
 		private readonly getSettings: SettingsProvider,
+		/** 获取 PiDeck 桌面设置 */
+		private readonly getPiDeckSettings: () => AppSettings,
+		/** 保存 PiDeck 桌面设置的部分更新 */
+		private readonly patchPiDeckSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>,
 	) {}
 
 	/** 将扩展文件边界切换到统一解析出的 WSL HOME；null 恢复 Windows home。 */
@@ -144,12 +148,40 @@ export class ExtensionManager {
 			}
 		}
 
-		// 读取 disabledExtensions 列表，标记扩展启用/禁用状态
-		const disabledExts = await this.getDisabledExtensions();
+		// 通过 PiDeck 桌面设置标记内置扩展移除状态
+		const removedBuiltIn = new Set(this.getPiDeckSettings().removedBuiltInExtensions ?? []);
 		for (const ext of merged) {
-			ext.enabled = !disabledExts.has(ext.source);
+			ext.enabled = !(ext.builtIn && removedBuiltIn.has(ext.source));
 		}
-		return { extensions: merged, raw };
+
+		// 仅检测 todo / plan / ask 固定冲突：三方包名含对应关键词时自动禁用内置版。
+		// nul-redirect-fix 等其它内置扩展暂不参与冲突检测，避免 mode 等通用词误伤。
+		const conflicts: { builtIn: string; thirdParty: string }[] = [];
+		for (const [builtInName, keyword] of BUILT_IN_CONFLICT_KEYWORDS) {
+			if (removedBuiltIn.has(builtInName)) continue; // 已移除的不重复检测
+			const conflicting = merged.find(
+				(ext) =>
+					!ext.builtIn &&
+					ext.enabled !== false &&
+					extensionNameMatches(ext.source, keyword),
+			);
+			if (conflicting) {
+				removedBuiltIn.add(builtInName);
+				await this.saveRemovedBuiltIn([...removedBuiltIn]);
+				conflicts.push({
+					builtIn: builtInName,
+					thirdParty: conflicting.source,
+				});
+				// 同步更新 enabled 状态
+				for (const ext of merged) {
+					if (ext.builtIn && ext.source === builtInName) {
+						ext.enabled = false;
+					}
+				}
+			}
+		}
+
+		return { extensions: merged, raw, conflicts: conflicts.length > 0 ? conflicts : undefined };
 	}
 
 	/**
@@ -227,30 +259,14 @@ export class ExtensionManager {
 		await rm(targetPath, { recursive: true, force: true });
 	}
 
-	/** 卸载后从 disabledExtensions 清掉对应项，避免残留无效禁用记录。 */
-	private async clearDisabledEntry(source: string): Promise<void> {
-		try {
-			const settingsPath = join(this.homeDir, ".pi", "agent", "settings.json");
-			const raw = await readFile(settingsPath, "utf8");
-			const settings = JSON.parse(raw) as { disabledExtensions?: string[] };
-			const disabled = settings.disabledExtensions ?? [];
-			if (!disabled.includes(source)) return;
-			settings.disabledExtensions = disabled.filter((item) => item !== source);
-			await writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
-		} catch {
-			// settings 不存在或解析失败时忽略；卸载主流程已成功
-		}
-	}
-
 	async uninstall(source: string, scope: PiExtensionSummary["scope"] = "user"): Promise<void> {
 		const normalized = source.trim();
 		if (!normalized) throw new Error("扩展来源不能为空");
-		// 阻止卸载 PiDeck 内置扩展（如 pi-deck-file-capture）
+		// 内置扩展：移除 PiDeck 设置中的自动部署标记，不删除文件
 		if (normalized.startsWith("pi-deck-")) {
-			throw new Error("PiDeck 内置扩展不可卸载");
+			throw new Error("内置扩展请使用 removeBuiltIn 操作");
 		}
-		// 本地 .ts/目录扩展不在 pi package 列表里，pi remove 会报 No matching package；
-		// 例如 orca-agent-status.ts 只能直接删文件。
+		// 本地 .ts/目录扩展不在 pi package 列表里，pi remove 会报 No matching package
 		if (this.isLocalFileExtension(normalized)) {
 			await this.removeLocalExtension(normalized);
 		} else {
@@ -260,9 +276,38 @@ export class ExtensionManager {
 				...(scope === "project" ? ["-l"] : []),
 			], 30_000);
 		}
-		await this.clearDisabledEntry(normalized);
-		// 列表已变，清缓存，避免 UI 继续读到旧安装态。
 		this.invalidateListCache();
+	}
+
+	/**
+	 * 「移除」内置扩展：仅写入 PiDeck 设置，下次启动自动跳过部署。
+	 * 不删除扩展文件，保留在 ~/.pi/agent/extensions/ 中以便恢复。
+	 */
+	async removeBuiltIn(source: string): Promise<void> {
+		const normalized = source.trim();
+		if (!normalized.startsWith("pi-deck-")) {
+			throw new Error("只能操作内置扩展");
+		}
+		const current = this.getPiDeckSettings().removedBuiltInExtensions ?? [];
+		if (current.includes(normalized)) return;
+		await this.saveRemovedBuiltIn([...current, normalized]);
+		this.invalidateListCache();
+	}
+
+	/**
+	 * 恢复已移除的内置扩展：从 PiDeck 设置中移除记录，下次启动自动部署。
+	 */
+	async restoreBuiltIn(source: string): Promise<void> {
+		const normalized = source.trim();
+		const current = this.getPiDeckSettings().removedBuiltInExtensions ?? [];
+		const next = current.filter((s) => s !== normalized);
+		if (next.length === current.length) return;
+		await this.saveRemovedBuiltIn(next);
+		this.invalidateListCache();
+	}
+
+	private async saveRemovedBuiltIn(removedList: string[]): Promise<void> {
+		await this.patchPiDeckSettings({ removedBuiltInExtensions: removedList });
 	}
 
 	async install(source: string): Promise<string> {
@@ -378,35 +423,6 @@ export class ExtensionManager {
 		return 0;
 	}
 
-	async setEnabled(source: string, enabled: boolean): Promise<void> {
-		const settingsPath = join(this.homeDir, ".pi", "agent", "settings.json");
-		let raw = "{}";
-		try { raw = await readFile(settingsPath, "utf8"); } catch {}
-		const settings = JSON.parse(raw);
-		const disabled: string[] = settings.disabledExtensions ?? [];
-		if (enabled) {
-			settings.disabledExtensions = disabled.filter((s) => s !== source);
-		} else {
-			if (!disabled.includes(source)) {
-				settings.disabledExtensions = [...disabled, source];
-			}
-		}
-		await writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
-		// 开关状态变化后同步清缓存，避免 UI 显示旧 enabled。
-		this.invalidateListCache();
-	}
-
-	private async getDisabledExtensions(): Promise<Set<string>> {
-		const settingsPath = join(this.homeDir, ".pi", "agent", "settings.json");
-		try {
-			const raw = await readFile(settingsPath, "utf8");
-			const settings = JSON.parse(raw);
-			return new Set<string>(settings.disabledExtensions ?? []);
-		} catch {
-			return new Set<string>();
-		}
-	}
-
 	/**
 	 * --no-approve 标志在 pi 0.79.0 引入。检测本地安装的 pi 版本是否支持。
 	 */
@@ -514,4 +530,27 @@ export class ExtensionManager {
 
 		return result;
 	}
+}
+
+/**
+ * 当前参与冲突检测的内置扩展与关键词。
+ * todo / plan / ask：三方包名含关键词即视为功能冲突；其它内置扩展暂不自动互斥。
+ */
+export const BUILT_IN_CONFLICT_KEYWORDS = [
+	["pi-deck-todo.ts", "todo"],
+	["pi-deck-plan-mode.ts", "plan"],
+	["pi-deck-ask-question.ts", "ask"],
+] as const;
+
+/**
+ * 固定关键词冲突匹配：清理协议/作用域后，包名是否包含指定关键词。
+ * 例：rpiv-todo、my-plan-helper 命中；context-mode 不含 plan/todo 不命中。
+ */
+export function extensionNameMatches(source: string, keyword: string): boolean {
+	const clean = source
+		.replace(/^(?:npm|file|github|git|https?):/i, "")
+		.replace(/\.ts$/, "")
+		.replace(/@[^/]+\//, "")
+		.toLowerCase();
+	return clean.includes(keyword.toLowerCase());
 }
