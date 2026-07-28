@@ -5518,6 +5518,17 @@ export function App() {
     // 30 秒兜底释放，防止锁泄漏
     setTimeout(() => resendingIdsRef.current.delete(message.id), 30_000);
 
+    // 与 sendPrompt 一致：无论用户是否在回看历史，重发都强制贴底并持续跟随流式输出。
+    // 否则截断后消息变短、视口停在中部，新消息会“悬在上面一点”，ResizeObserver 也不会跟踪。
+    setAutoScroll(true);
+    autoScrollRef.current = true;
+    setShowScrollToBottom(false);
+    programmaticScrollRef.current = true;
+    const resendTimeline = timelineRef.current;
+    if (resendTimeline) {
+      resendTimeline.scrollTo({ top: resendTimeline.scrollHeight, behavior: "instant" });
+    }
+
     try {
       // 不走 fork（会新建会话文件），在同文件内截断后重发。
       const prepared = await api.agents.prepareResend(activeAgentId, message.id);
@@ -5529,7 +5540,21 @@ export function App() {
         prepared?.images && prepared.images.length > 0
           ? prepared.images
           : message.images;
-      await submitPromptSnapshot(activeAgentId, text, images);
+      const accepted = await submitPromptSnapshot(activeAgentId, text, images);
+      if (accepted !== true) return;
+
+      // 截断重载 + 重新 prompt 后，DOM 会先缩后涨；多帧贴底，保证新用户消息与流式回复都可见。
+      const stickToBottom = () => {
+        if (!autoScrollRef.current) return;
+        const timeline = timelineRef.current;
+        if (!timeline) return;
+        programmaticScrollRef.current = true;
+        timeline.scrollTo({ top: timeline.scrollHeight, behavior: "instant" });
+      };
+      requestAnimationFrame(() => {
+        stickToBottom();
+        requestAnimationFrame(stickToBottom);
+      });
     } catch (error) {
       showToast(
         t("app.resendFailed", {
@@ -7598,9 +7623,10 @@ export function App() {
                       <AskQuestionCard key={message.id} message={message} onRespond={(response) => {
                         const req = meta.uiRequest;
                         if (!req || !activeAgentId) return;
-                        // cancelled 通过 sendUiResponse 正常发送：pi 的 rpc-mode 对
-                        // select/input/editor 返回 undefined（卡片显示"已取消"），
-                        // confirm 返回 false（同"否"，pi 的 ctx.ui.confirm() 不区分取消和否）
+                        // cancelled 通过 sendUiResponse 正常发送。
+                        // select/input/editor：cancelled 或 value:null → undefined/null。
+                        // 原生 confirm：pi 会把 cancelled 解析成 false（与「否」同值）；
+                        // ask_question 扩展已把 confirm 改走 select，避免点叉误答成否。
                         if (response.cancelled) {
                           setCancellingUi(true);
                           api.agents.sendUiResponse(activeAgentId, req.requestId, response);
@@ -7927,6 +7953,8 @@ export function App() {
               activeAgentId={activeAgentId}
               onCancel={() => {
                 if (activeUiAsk.requestId && activeAgentId) {
+                  // 与单问一致：关闭问卷时给明确 toast，避免静默取消。
+                  showToast(t("ask.cancelBatchHint"));
                   setActiveUiRequest((current) => {
                     if (!current) return null;
                     const next = { ...current };
@@ -7972,11 +8000,18 @@ export function App() {
               activeUiAsk.method === "select" &&
               Array.isArray(activeUiAsk.options) &&
               activeUiAsk.options.length > 0;
+            // 按提问类型给取消 toast/提示：select 已有；confirm/input/editor 之前点叉会静默取消。
             const cancelHintKey = isPlanNextSelect
               ? "ask.planNextCancelHint"
               : isPlanReviseEditor
                 ? "ask.planReviseBackHint"
-                : "ask.cancelHint";
+                : activeUiAsk.method === "confirm"
+                  ? "ask.cancelConfirmHint"
+                  : activeUiAsk.method === "input"
+                    ? "ask.cancelInputHint"
+                    : activeUiAsk.method === "editor"
+                      ? "ask.cancelEditorHint"
+                      : "ask.cancelHint";
 
             const dismissAsk = () => {
               if (!activeUiAsk.requestId || !activeAgentId) return;
@@ -8034,14 +8069,14 @@ export function App() {
               <div className="ask-inline-bar-header">
                 <MessageCircle size={14} />
                 <span>{(isPlanNextSelect || isPlanReviseEditor) ? t("app.composerModePlan") : t("ask.toolName")}</span>
-                {(isSelectWithOptions || isPlanReviseEditor) && (
-                  <span className="ask-inline-bar-cancel-hint">{t(cancelHintKey)}</span>
-                )}
+                {/* 所有单问类型都展示取消语义，避免只有 select 有提示。 */}
+                <span className="ask-inline-bar-cancel-hint">{t(cancelHintKey)}</span>
                 <button
                   className="ask-inline-bar-close"
                   title={isPlanReviseEditor ? t("ask.planReviseBack") : t("common.close")}
                   onClick={() => {
-                    if (isSelectWithOptions || isPlanReviseEditor) showToast(t(cancelHintKey));
+                    // 点叉一律 toast：select/confirm/input/editor/plan 专用文案已由 cancelHintKey 区分。
+                    showToast(t(cancelHintKey));
                     respondCancel();
                   }}
                 >

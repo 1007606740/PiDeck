@@ -3692,8 +3692,8 @@ app.whenReady().then(async () => {
  * 这些工作不影响首帧可见，但会拖慢 packaged app 的“点击图标 → 窗口出来”。
  */
 async function runPostWindowStartupTasks(): Promise<void> {
-	// 自动部署 PiDeck 内置扩展。
-	// 跳过用户已手动移除的，部署策略记录在桌面 settings.json 的 removedBuiltInExtensions 中。
+	// 启动后异步校准内置扩展：对比 resources 与用户目录全文，不一致则覆盖。
+	// 用户手动移除的记在 removedBuiltInExtensions，跳过自动部署。
 	const deployExtensionsTo = async (homeDir: string) => {
 		// 迁移旧的 pi disabledExtensions 配置到 PiDeck 自有设置
 		try {
@@ -3725,11 +3725,59 @@ async function runPostWindowStartupTasks(): Promise<void> {
 		} catch {
 			// 迁移失败不影响主流程
 		}
+
 		const removedBuiltIn = new Set(settingsStore.get().removedBuiltInExtensions ?? []);
-		for (const extensionName of BUILT_IN_EXTENSIONS) {
-			if (removedBuiltIn.has(extensionName)) continue;
-			await ensurePiDeckExtension(extensionName, homeDir).catch((error) => {
-				console.error(`Failed to install ${extensionName}:`, error);
+		const summary = {
+			homeDir,
+			installed: [] as string[],
+			updated: [] as string[],
+			unchanged: [] as string[],
+			skippedRemoved: [] as string[],
+			missingSource: [] as string[],
+			failed: [] as Array<{ name: string; error: string }>,
+		};
+
+		// 并行校准：磁盘 IO 为主，互不依赖
+		await Promise.all(
+			BUILT_IN_EXTENSIONS.map(async (extensionName) => {
+				if (removedBuiltIn.has(extensionName)) {
+					summary.skippedRemoved.push(extensionName);
+					return;
+				}
+				try {
+					const result = await ensurePiDeckExtension(extensionName, homeDir);
+					if (result === "installed") summary.installed.push(extensionName);
+					else if (result === "updated") summary.updated.push(extensionName);
+					else if (result === "unchanged") summary.unchanged.push(extensionName);
+					else if (result === "missing-source") summary.missingSource.push(extensionName);
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					summary.failed.push({ name: extensionName, error: message });
+					console.error(`Failed to sync ${extensionName}:`, error);
+				}
+			}),
+		);
+
+		const changedCount = summary.installed.length + summary.updated.length;
+		if (changedCount > 0) {
+			// 文件有变时清扩展列表缓存，配置页/下次 list 能看到最新状态
+			extensionManager.invalidateListCache();
+		}
+
+		void appLogger.info("extension", "Built-in extensions sync finished", {
+			homeDir: summary.homeDir,
+			installed: summary.installed,
+			updated: summary.updated,
+			unchanged: summary.unchanged,
+			skippedRemoved: summary.skippedRemoved,
+			missingSource: summary.missingSource,
+			failed: summary.failed,
+			changedCount,
+		});
+		if (summary.failed.length > 0) {
+			void appLogger.warn("extension", "Some built-in extensions failed to sync", {
+				homeDir: summary.homeDir,
+				failed: summary.failed,
 			});
 		}
 	};
@@ -3833,11 +3881,25 @@ async function runPostWindowStartupTasks(): Promise<void> {
 	}, 0);
 }
 
+/** ensurePiDeckExtension 的校准结果，供启动任务汇总日志。 */
+type PiDeckExtensionSyncResult =
+	| "installed"
+	| "updated"
+	| "unchanged"
+	| "missing-source";
+
 /**
  * 将 PiDeck 内置的 pi 扩展部署到用户扩展目录，使 pi 自动加载。
- * 仅在目标文件不存在或内容不一致时覆盖写入，避免不必要的磁盘操作。
+ * 启动时异步对比 resources 源文件与 ~/.pi/agent/extensions 目标：
+ * - 目标不存在 → 安装
+ * - 内容不一致（老版本/用户手改）→ 覆盖为 PiDeck 当前版本
+ * - 内容一致 → 跳过写盘
+ * 用户在设置里「移除」的内置扩展由调用方按 removedBuiltInExtensions 跳过，本函数不读该列表。
  */
-async function ensurePiDeckExtension(extensionName: string, wslHome?: string): Promise<void> {
+async function ensurePiDeckExtension(
+	extensionName: string,
+	wslHome?: string,
+): Promise<PiDeckExtensionSyncResult> {
 	const home = wslHome ?? app.getPath("home");
 	const extensionsDir = join(home, ".pi", "agent", "extensions");
 	const targetPath = join(extensionsDir, extensionName);
@@ -3847,20 +3909,34 @@ async function ensurePiDeckExtension(extensionName: string, wslHome?: string): P
 		? join(app.getAppPath(), "resources", "extensions", extensionName)
 		: join(process.resourcesPath, "extensions", extensionName);
 
-	// 检查源文件是否存在
 	const sourceContent = await readFile(sourcePath, "utf-8").catch(() => null);
 	if (!sourceContent) {
 		console.warn(`[PiDeck] Extension source not found: ${sourcePath}`);
-		return;
+		void appLogger?.warn("extension", "Built-in extension source missing", {
+			extensionName,
+			sourcePath,
+		});
+		return "missing-source";
 	}
 
-	// 读取目标文件，只在内容不一致时覆盖（兼顾首次安装和版本更新）
 	const existingContent = await readFile(targetPath, "utf-8").catch(() => null);
-	if (existingContent === sourceContent) return;
+	// 全文比对：任意与 resources 不一致都覆盖，避免用户仍跑旧版 ask/plan/todo 扩展。
+	if (existingContent === sourceContent) {
+		return "unchanged";
+	}
 
+	const action: PiDeckExtensionSyncResult = existingContent == null ? "installed" : "updated";
 	await mkdir(extensionsDir, { recursive: true });
 	await writeFile(targetPath, sourceContent, "utf-8");
-	console.log(`[PiDeck] Installed extension: ${targetPath}`);
+	console.log(`[PiDeck] ${action === "installed" ? "Installed" : "Updated"} extension: ${targetPath}`);
+	void appLogger?.info("extension", `Built-in extension ${action}`, {
+		extensionName,
+		targetPath,
+		sourcePath,
+		previousBytes: existingContent?.length ?? 0,
+		nextBytes: sourceContent.length,
+	});
+	return action;
 }
 
 /**

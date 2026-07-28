@@ -21440,4 +21440,34 @@ body.is-git-pane-resizing, body.is-git-pane-resizing * { cursor: row-resize !imp
   margin-top: var(--space-1);
 }
 
+/* ── Sonner Toast ──
+ * 去 richColors，中性背景 + 左侧色条区分类型，保持 shadcn 式的素雅。
+ * 图标更小、留白克制，不过度装饰。
+ */
+[data-sonner-toaster] {
+  font-family: var(--font-family-base);
+}
+
+[data-sonner-toaster] [data-close-button] {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+[data-sonner-toaster] [data-sonner-toast]:hover [data-close-button] {
+  opacity: 0.5;
+}
+
+/* Toast 类型色图标：中性底色下用图标颜色区分类型 */
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-icon] {
+  color: var(--color-danger);
+}
+[data-sonner-toaster] [data-sonner-toast][data-type="warning"] [data-icon] {
+  color: var(--color-warning);
+}
+[data-sonner-toaster] [data-sonner-toast][data-type="success"] [data-icon] {
+  color: var(--color-accent);
+}
+[data-sonner-toaster] [data-sonner-toast][data-type="info"] [data-icon] {
+  color: var(--color-info);
+}
+
 
