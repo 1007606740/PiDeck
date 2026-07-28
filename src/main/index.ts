@@ -13,7 +13,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { basename, join, resolve } from "node:path";
 import { createWriteStream, existsSync } from "node:fs";
-import { copyFile, cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { spawn, type ChildProcess } from "node:child_process";
 import { is } from "@electron-toolkit/utils";
 import { PetSystem, type PetSystemDeps } from "./pet";
@@ -1468,6 +1468,32 @@ function registerIpc() {
 					void appLogger.info("file", "File/folder copied", { src, dest });
 				} catch (error) {
 					void appLogger.error("file", "File copy failed", { src, targetDir, error });
+					throw error;
+				}
+			}
+			return results;
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.filesMove,
+		async (_event, sourcePaths: string[], targetDir: string) => {
+			const results: string[] = [];
+			for (const src of sourcePaths) {
+				try {
+					const name = basename(src);
+					const dest = join(targetDir, name);
+					// 先尝试 rename（同设备快），跨设备 fallback 到 cp+rm
+					try {
+						await rename(src, dest);
+					} catch {
+						await cp(src, dest, { recursive: true });
+						await rm(src, { recursive: true, force: true });
+					}
+					results.push(dest);
+					void appLogger.info("file", "File/folder moved", { src, dest });
+				} catch (error) {
+					void appLogger.error("file", "File move failed", { src, targetDir, error });
 					throw error;
 				}
 			}

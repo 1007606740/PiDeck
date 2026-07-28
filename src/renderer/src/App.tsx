@@ -8573,7 +8573,15 @@ export function App() {
                             });
                           }
                         }}
-                        onPasteFiles={(targetDir) => {
+                        onMoveFiles={(sourcePaths, targetDir) => {
+                if (activeProjectId) {
+                  void api.files.move(sourcePaths, targetDir).then(() => {
+                    void refreshFiles(activeProjectId);
+                    showToast(t("app.fileMoveDone", { count: sourcePaths.length }), 2000);
+                  });
+                }
+              }}
+              onPasteFiles={(targetDir) => {
                           try {
                             const paths = api.files.getClipboardPaths();
                             if (paths.length > 0 && activeProjectId) {

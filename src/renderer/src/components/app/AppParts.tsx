@@ -4397,6 +4397,8 @@ export function DrawerContent(props: {
 	onDropFiles?: (targetDir: string, files: FileList) => void;
 	/** 粘贴剪贴板文件到目标目录 */
 	onPasteFiles?: (targetDir: string) => void;
+	/** 内部拖拽移动文件到目标目录 */
+	onMoveFiles?: (sourcePaths: string[], targetDir: string) => void;
 }) {
 	const title =
 		props.panel === "files"
@@ -4446,6 +4448,7 @@ export function DrawerContent(props: {
 					currentProjectRoot={props.projectRoot}
 					onDropFiles={props.onDropFiles}
 					onPasteFiles={props.onPasteFiles}
+					onMoveFiles={props.onMoveFiles}
 				/>
 			)}
 			{props.panel === "sessions" && (
@@ -4483,6 +4486,8 @@ function FilesPanel(props: {
 	onDropFiles?: (targetDir: string, files: FileList) => void;
 	/** 粘贴剪贴板文件到目标目录（Ctrl+V / 工具栏按钮 / 右键菜单） */
 	onPasteFiles?: (targetDir: string) => void;
+	/** 内部拖拽移动文件/目录到目标目录 */
+	onMoveFiles?: (sourcePaths: string[], targetDir: string) => void;
 }) {
 	const panelRef = useRef<HTMLDivElement>(null);
 	const [showScrollTop, setShowScrollTop] = useState(false);
@@ -4492,6 +4497,7 @@ function FilesPanel(props: {
 	const [createItemName, setCreateItemName] = useState("");
 	/** 拖入高亮的目标目录路径（null = 拖在面板空白区域无高亮） */
 	const [dragOverDir, setDragOverDir] = useState<string | null>(null);
+	const [dragSourcePath, setDragSourcePath] = useState<string | null>(null);
 	const dragCountRef = useRef(0);
 
 	// 面板自身接受拖入：落在空白区域视为复制到项目根目录
@@ -4655,6 +4661,7 @@ function FilesPanel(props: {
 					onOpenFile={props.onOpenFile}
 					onViewFile={props.onViewFile}
 					onDropFiles={props.onDropFiles}
+					onMoveFiles={props.onMoveFiles}
 					dragOverDir={dragOverDir}
 					onDragOverDirChange={setDragOverDir}
 				/>
@@ -4900,6 +4907,7 @@ function FileNode(props: {
 	depth?: number;
 	/** 拖入文件（仅目录节点使用） */
 	onDropFiles?: (targetDir: string, files: FileList) => void;
+	onMoveFiles?: (sourcePaths: string[], targetDir: string) => void;
 	dragOverDir?: string | null;
 	onDragOverDirChange?: (path: string | null) => void;
 }) {
@@ -4911,26 +4919,24 @@ function FileNode(props: {
 		event.preventDefault();
 		props.onFileContextMenu(node, event.clientX, event.clientY);
 	};
-	if (node.type === "file")
-		return (
-			<div className="file-node" style={rowStyle}>
-				<button className="file file-node-row" style={rowStyle}
-					title={`${node.relativePath}\n${typeLabel}`}
-					onClick={() => props.onViewFile?.(node.path)}
-					onContextMenu={menu}>
-					<span className="file-node-icon">
-						{fileIconElement(node.name, false, false)}
-					</span>
-					<span className="file-node-name">{node.name}</span>
-					<span className="file-node-type-label">{typeLabel}</span>
-				</button>
-			</div>
-		);
-	const isDragOver = props.dragOverDir === node.path;
+	const handleDragStart = useCallback((e: React.DragEvent) => {
+		e.dataTransfer.effectAllowed = "move";
+		e.dataTransfer.setData("text/pi-file-path", node.path);
+		// 设置拖拽图标
+		const ghost = e.currentTarget.cloneNode(true) as HTMLElement;
+		ghost.style.position = "absolute";
+		ghost.style.top = "-1000px";
+		ghost.style.opacity = "0.6";
+		ghost.style.pointerEvents = "none";
+		ghost.style.width = `${e.currentTarget.clientWidth}px`;
+		document.body.appendChild(ghost);
+		e.dataTransfer.setDragImage(ghost, 10, 10);
+		setTimeout(() => document.body.removeChild(ghost), 0);
+	}, [node.path]);
 	const handleDragOver = useCallback((e: React.DragEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
-		e.dataTransfer.dropEffect = "copy";
+		e.dataTransfer.dropEffect = "move";
 		props.onDragOverDirChange?.(node.path);
 	}, [node.path]);
 	const handleDragLeave = useCallback(() => {
@@ -4940,15 +4946,47 @@ function FileNode(props: {
 		e.preventDefault();
 		e.stopPropagation();
 		props.onDragOverDirChange?.(null);
+		// 内部拖拽移动：优先检查 pi-file-path
+		const sourcePath = e.dataTransfer.getData("text/pi-file-path");
+		if (sourcePath) {
+			if (sourcePath !== node.path && props.onMoveFiles) {
+				props.onMoveFiles([sourcePath], node.path);
+			}
+			return;
+		}
+		// 外部 OS 文件拖入
 		if (e.dataTransfer.files.length > 0 && props.onDropFiles) {
 			props.onDropFiles(node.path, e.dataTransfer.files);
 		}
-	}, [node.path, props.onDropFiles]);
+	}, [node.path, props.onDropFiles, props.onMoveFiles]);
+	if (node.type === "file")
+		return (
+			<div className="file-node" style={rowStyle}>
+				<button
+					className="file file-node-row"
+					style={rowStyle}
+					title={`${node.relativePath}\n${typeLabel}`}
+					draggable
+					onDragStart={handleDragStart}
+					onClick={() => props.onViewFile?.(node.path)}
+					onContextMenu={menu}
+				>
+					<span className="file-node-icon">
+						{fileIconElement(node.name, false, false)}
+					</span>
+					<span className="file-node-name">{node.name}</span>
+					<span className="file-node-type-label">{typeLabel}</span>
+				</button>
+			</div>
+		);
+	const isDragOver = props.dragOverDir === node.path;
 	return (
 		<div className="file-node" style={rowStyle}>
 			<button
 				className={`directory file-node-row${isDragOver ? " drag-over" : ""}`}
 				style={rowStyle}
+				draggable
+				onDragStart={handleDragStart}
 				onClick={() => onToggleDirectory(node.path)}
 				onContextMenu={menu}
 				onDragOver={handleDragOver}
@@ -4972,6 +5010,7 @@ function FileNode(props: {
 							onViewFile={props.onViewFile}
 							depth={depth + 1}
 							onDropFiles={props.onDropFiles}
+							onMoveFiles={props.onMoveFiles}
 							dragOverDir={props.dragOverDir}
 							onDragOverDirChange={props.onDragOverDirChange} />
 					))}

@@ -288,6 +288,7 @@ export function createPreviewApi(): PiDesktopApi {
 			writeContent: async () => undefined,
 			delete: async () => undefined,
 			copy: async () => [],
+			move: async () => [],
 			rename: async () => "",
 			create: async () => "",
 			getPathForFile: () => "",
