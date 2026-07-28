@@ -7693,7 +7693,7 @@ export function App() {
                     sections={taskSections}
                     meta={
                       taskSections.length > 1
-                        ? t("app.widgetTasksMeta", {
+                        ? t("app.widgetTodosMeta", {
                             todo: String(todoEntry?.[1]?.length ?? 0),
                             plan: String(planEntry?.[1]?.length ?? 0),
                           })

@@ -599,7 +599,7 @@ export function ExtensionWidgetCard(props: {
 		({
 			[TODO_WIDGET_KEY]: t("app.widgetTodo"),
 			[PLAN_WIDGET_KEY]: t("app.widgetPlan"),
-			[MERGED_TASK_WIDGET_KEY]: t("app.widgetTasks"),
+			[MERGED_TASK_WIDGET_KEY]: t("app.widgetTodos"),
 		} as Record<string, string>)[props.widgetKey] ?? props.widgetKey;
 	const [expanded, setExpanded] = useState(() => {
 		if (typeof window === "undefined") return true;
@@ -626,6 +626,9 @@ export function ExtensionWidgetCard(props: {
 
 	const sections = props.sections?.filter((s) => s.lines.length > 0) ?? [];
 	const useSections = sections.length > 0;
+	// 多分区时用 Tab 切换；activeTabIndex 在当前渲染周期持久。
+	const [activeTabIndex, setActiveTabIndex] = useState(0);
+	const activeSection = sections[activeTabIndex];
 
 	return (
 		<div className="extension-widget-card" data-widget-key={props.widgetKey}>
@@ -658,22 +661,30 @@ export function ExtensionWidgetCard(props: {
 			</div>
 			{expanded && (
 				<div className="extension-widget-card-content">
-					{useSections
-						? sections.map((section) => (
-								<div
+					{/* 多分区：Tab 切换 */}
+					{useSections && sections.length > 1 && (
+						<div className="extension-widget-tabs" role="tablist">
+							{sections.map((section, i) => (
+								<button
 									key={section.key}
-									className="extension-widget-section"
-									data-section-key={section.key}
+									role="tab"
+									aria-selected={i === activeTabIndex}
+									className={`extension-widget-tab${i === activeTabIndex ? " active" : ""}`}
+									onClick={() => setActiveTabIndex(i)}
 								>
-									{/* 多分区时才显示分区标题，单分区标题已在卡片头体现 */}
-									{sections.length > 1 ? (
-										<div className="extension-widget-section-label">{section.label}</div>
-									) : null}
-									{section.lines.map((line, index) => (
-										<div key={`${section.key}-${index}`} className="extension-widget-card-line">
-											{renderWidgetLine(line)}
-										</div>
-									))}
+									{section.label}
+								</button>
+							))}
+						</div>
+					)}
+					{/* 分区内容：多分区时只显示当前 tab，单分区直接展开 */}
+					{useSections && activeSection
+						? activeSection.lines.map((line, index) => (
+								<div
+									key={`${activeSection.key}-${index}`}
+									className="extension-widget-card-line"
+								>
+									{renderWidgetLine(line)}
 								</div>
 						  ))
 						: props.lines.map((line, index) => (

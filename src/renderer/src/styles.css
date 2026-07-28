@@ -7908,40 +7908,46 @@ body.is-composer-resizing .composer-resize-handle::after {
   color: var(--color-text-tertiary);
   text-transform: none;
 }
-.extension-widget-section {
+
+/* 合并卡内部 Tab 条（TODO | Plan），类似 sidebar drawer-tab 风格 */
+.extension-widget-tabs {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
+  gap: 0;
+  /* 紧贴内容上边缘，不额外占空间 */
+  margin: -2px 0 4px;
+  padding: 0 2px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: transparent;
 }
-.extension-widget-section + .extension-widget-section {
-  margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px dashed color-mix(in srgb, var(--color-border-subtle) 80%, transparent);
-}
-.extension-widget-section-label {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  max-width: 100%;
-  margin: 0 0 1px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-bg-hover) 70%, transparent);
-  color: var(--color-text-secondary);
-  font-family: var(--font-family-business);
+.extension-widget-tab {
+  border: 0;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  height: 22px;
+  padding: 0 10px;
   font-size: var(--font-size-micro);
   font-weight: 600;
-  line-height: 16px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  font-family: var(--font-family-business);
   letter-spacing: 0.02em;
 }
-.extension-widget-section[data-section-key="pi-deck-todo"] .extension-widget-section-label {
-  color: var(--color-info);
-  background: color-mix(in srgb, var(--color-info) 10%, transparent);
+.extension-widget-tab:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
-.extension-widget-section[data-section-key="pi-deck-plan-todos"] .extension-widget-section-label {
+.extension-widget-tab.active {
+  color: var(--color-text-primary);
+  background: var(--color-bg-active);
+}
+.extension-widget-tab:first-child.active {
+  color: var(--color-info);
+}
+.extension-widget-tab:last-child.active {
   color: var(--color-brand-blue);
-  background: color-mix(in srgb, var(--color-brand-blue) 10%, transparent);
 }
 .extension-widget-card-close {
   display: flex;
