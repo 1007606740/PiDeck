@@ -7825,8 +7825,8 @@ body.is-composer-resizing .composer-resize-handle::after {
   flex-direction: column;
   gap: 1px;
   width: 100%;
-  /* 约 5 行 Todo 高度，再高就卡片内滚动 */
-  max-height: min(108px, 16vh);
+  /* 父容器限高：给 TODO/Plan 卡片足够可视高度，超出再内部滚动 */
+  max-height: min(240px, 34vh);
   overflow-y: auto;
   overscroll-behavior: contain;
   /* composer 默认 gap=8px，这里用负 margin 抵消，最终与输入框只留约 2px 缝 */
@@ -7975,18 +7975,18 @@ body.is-composer-resizing .composer-resize-handle::after {
   outline-offset: 1px;
 }
 .extension-widget-card-content {
-  /* 扩展内容按"可见行数"限高：默认只露约 5 行，多出来的在卡片内滚动，给输入框腾空间。 */
-  --extension-widget-visible-lines: 5;
-  --extension-widget-line-height: 15px;
-  padding: 0 6px 2px 6px;
+  /* 扩展内容按"可见行数"限高：约 9 行，便于 TODO/Plan 查看更多待办项。 */
+  --extension-widget-visible-lines: 9;
+  --extension-widget-line-height: 16px;
+  padding: 0 6px 4px 6px;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
   min-height: 0;
   max-height: calc(
     var(--extension-widget-visible-lines) *
       var(--extension-widget-line-height) +
-      (var(--extension-widget-visible-lines) - 1) * 1px
+      (var(--extension-widget-visible-lines) - 1) * 2px
   );
   overflow-y: auto;
   overscroll-behavior: contain;

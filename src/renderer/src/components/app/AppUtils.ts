@@ -5,6 +5,7 @@
 
 import type { ReactNode } from "react";
 import type { ChatMessage, FileTreeNode, PiCommand } from "../../../../shared/types";
+import { formatFilePathRef } from "./RichInput";
 
 /* ── ANSI 清理 ── */
 
@@ -581,7 +582,7 @@ function buildFileTreeItems(files: FileTreeNode[]): SuggestionItem[] {
 				key: file.path,
 				label: `@${file.name}`,
 				description: file.relativePath,
-				value: `@${file.relativePath}`,
+				value: formatFilePathRef(file.relativePath),
 				treeDepth: depth,
 			});
 		}
@@ -638,7 +639,8 @@ export function buildSuggestionItems(
 				key: item.file.path,
 				label: `@${item.file.name}`,
 				description: item.file.relativePath,
-				value: `@${item.file.relativePath}`,
+				// 相对路径含空格时同样加引号，保证 chip 不被截断。
+				value: formatFilePathRef(item.file.relativePath),
 			}));
 	}
 	if (trigger.char === "&") {

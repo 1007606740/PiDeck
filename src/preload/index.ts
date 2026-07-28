@@ -278,6 +278,9 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.filesShowInFolder, path) as Promise<void>,
 		readContent: (path: string) =>
 			ipcRenderer.invoke(ipcChannels.filesReadContent, path) as Promise<string>,
+		/** 读取二进制文件为 data URL（粘贴资源管理器图片文件时用） */
+		readBase64: (path: string) =>
+			ipcRenderer.invoke(ipcChannels.filesReadBase64, path) as Promise<string>,
 		writeContent: (path: string, content: string) =>
 			ipcRenderer.invoke(ipcChannels.filesWriteContent, path, content) as Promise<void>,
 		delete: (path: string, recursive?: boolean) =>

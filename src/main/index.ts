@@ -1430,6 +1430,24 @@ function registerIpc() {
 		}
 	});
 
+	/** 读取本地图片等二进制文件为 data URL，供粘贴资源管理器图片文件时附加到消息。 */
+	ipcMain.handle(ipcChannels.filesReadBase64, async (_event, path: string) => {
+		const hostPath = toWindowsPath(path);
+		const buf = await readFile(hostPath);
+		const ext = hostPath.split(/[\\/]/).pop()?.split(".").pop()?.toLowerCase() ?? "";
+		const mime =
+			ext === "jpg" || ext === "jpeg"
+				? "image/jpeg"
+				: ext === "gif"
+					? "image/gif"
+					: ext === "webp"
+						? "image/webp"
+						: ext === "bmp"
+							? "image/bmp"
+							: "image/png";
+		return `data:${mime};base64,${buf.toString("base64")}`;
+	});
+
 	ipcMain.handle(ipcChannels.filesWriteContent, async (_event, path: string, content: string) => {
 		await writeFile(path, content, "utf8");
 		void appLogger.info("file", "File written", { path, bytes: Buffer.byteLength(content, "utf8") });

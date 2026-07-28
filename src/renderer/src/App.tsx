@@ -176,10 +176,12 @@ import {
   type MessageItem,
 } from "./components/app/AppUtils";
 import {
+	formatFilePathRef,
 	getCaretOffset as getCaretOffsetOf,
 	getRichInputCaretCoords,
 	parseRichInputChips,
 	RichInput,
+	unwrapFileChipPath,
 	type RichInputChip,
 } from "./components/app/RichInput";
 // 懒加载：Monaco Editor（~17.6MB Web Worker）仅在用户打开 diff 时才加载
@@ -5664,7 +5666,8 @@ export function App() {
     const liveComposerPrompt = activeAgentIdRef.current
       ? (livePromptByAgentRef.current[activeAgentIdRef.current] ?? prompt)
       : prompt;
-    const refText = paths.map((p) => `@${p}`).join(" ");
+    // 含空格路径写成 @"C:\Users\a b\file.txt"，避免 chip 解析在空格处截断。
+    const refText = paths.map((p) => formatFilePathRef(p)).join(" ");
     const spacer =
       cursor > 0 &&
       liveComposerPrompt[cursor - 1] !== " " &&
@@ -5719,33 +5722,58 @@ export function App() {
     //    需通过 preload 同步读取 Electron clipboard（FileNameW / CF_HDROP 等）
     const clipboardPaths = window.piDesktop.files.getClipboardPaths?.() ?? [];
     if (clipboardPaths.length > 0) {
-      // 图片文件路径不在此处处理：让它们走到下方 image items 分支，
-      // 保持截图/图片粘贴显示为图片而不是 @path 引用。
+      event.preventDefault();
+      const imagePaths = clipboardPaths.filter((p) => isImageExt(p));
       const nonImagePaths = clipboardPaths.filter((p) => !isImageExt(p));
-      if (nonImagePaths.length > 0) {
-        event.preventDefault();
-        insertFilePathRefs(nonImagePaths);
+      // 非图片：插入完整 @绝对路径 引用
+      if (nonImagePaths.length > 0) insertFilePathRefs(nonImagePaths);
+      // 图片文件：按附件附加（不是 @path 引用）；从磁盘读 base64，避免只拿到缩略图。
+      if (imagePaths.length > 0) {
+        void (async () => {
+          for (const path of imagePaths) {
+            try {
+              const dataUrl = await api.files.readBase64(path);
+              if (!dataUrl) continue;
+              setAttachedImages((prev) => [...prev, dataUrlToImageContent(dataUrl, "image/png")]);
+            } catch {
+              // 单张失败不阻断其余
+            }
+          }
+        })();
       }
-      // 如果全部是非图片文件，直接返回
-      if (clipboardPaths.length === nonImagePaths.length) return;
-      // 有图片文件，不返回，继续处理下面的 image items
-    } else {
-      // 2) 兜底：剪贴板里若有 File 对象（部分场景），用 webUtils 解析路径
-      const fileItems = items.filter((i) => i.kind === "file");
-      if (fileItems.length > 0) {
-        const files = fileItems
-          .map((i) => i.getAsFile())
-          .filter((f): f is File => Boolean(f));
-        const paths = resolveLocalPathsFromFiles(files);
-        if (paths.length > 0) {
-          event.preventDefault();
-          insertFilePathRefs(paths);
-          return;
+      return;
+    }
+
+    // 2) 兜底：剪贴板里若有 File 对象（部分场景），用 webUtils 解析路径
+    const fileItems = items.filter((i) => i.kind === "file");
+    if (fileItems.length > 0) {
+      const files = fileItems
+        .map((i) => i.getAsFile())
+        .filter((f): f is File => Boolean(f));
+      const paths = resolveLocalPathsFromFiles(files);
+      if (paths.length > 0) {
+        event.preventDefault();
+        const imagePaths = paths.filter((p) => isImageExt(p));
+        const nonImagePaths = paths.filter((p) => !isImageExt(p));
+        if (nonImagePaths.length > 0) insertFilePathRefs(nonImagePaths);
+        if (imagePaths.length > 0) {
+          void (async () => {
+            for (const path of imagePaths) {
+              try {
+                const dataUrl = await api.files.readBase64(path);
+                if (!dataUrl) continue;
+                setAttachedImages((prev) => [...prev, dataUrlToImageContent(dataUrl, "image/png")]);
+              } catch {
+                /* ignore */
+              }
+            }
+          })();
         }
+        return;
       }
     }
 
-    // 3) 图片粘贴（截图等位图数据，或资源管理器复制的图片文件）：读取并附加到消息
+    // 3) 纯位图粘贴（截图等，无本地文件路径）：读取并附加到消息
     const imageItems = items.filter((i) => i.type.startsWith("image/"));
     if (imageItems.length > 0) {
       event.preventDefault();
@@ -8162,7 +8190,7 @@ export function App() {
                 setSuggestionsOpen(false);
               }}
               onChipClick={(chip: RichInputChip) => {
-                if (chip.kind === "file") { const path = chip.raw.slice(1); openFilePath(path); }
+                if (chip.kind === "file") { openFilePath(unwrapFileChipPath(chip.raw)); }
                 if (chip.kind === "session") {
                   const s = activeProjectSessions.find((x) => (x.name ?? x.filePath) === chip.label);
                   if (s) { setSessionRefPickerTarget(s); setSessionRefPickerOpen(true); }
