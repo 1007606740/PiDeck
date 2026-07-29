@@ -94,7 +94,6 @@ import {
 	Trash,
 	Share,
 	SquarePen,
-	Send,
 	UserPen,
 } from "lucide-react";
 import { getFileIconSeti, getFileIconColor, getFileTypeLabel } from "../../fileIcons";
@@ -3241,7 +3240,6 @@ export const TurnRow = memo(function TurnRow(props: {
 	onOpenExternal: (url: string) => void;
 	onOpenFile?: (path: string) => void;
 	onDiffFile?: DiffFileHandler;
-	onResendUserMessage?: (message: ChatMessage) => void;
 	onDeleteMessage?: (messageId: string) => void;
 	onEditMessage?: (messageId: string, newText: string) => void;
 	/** Agent 正在处理请求或流式输出中时禁用编辑/删除等操作按钮 */
@@ -3665,11 +3663,8 @@ export const UserBubble = memo(function UserBubble(props: {
 	message: ChatMessage;
 	onPreviewImage: (image: ImageContent) => void;
 	onOpenFile?: (path: string) => void;
-	onResendUserMessage?: (message: ChatMessage) => void;
 	onEditMessage?: (messageId: string, newText: string) => void;
 	onDeleteMessage?: (messageId: string) => void;
-	/** 附件（中止/失败）可重发时显示重发按钮 */
-	showResendButton?: boolean;
 	validCommandNames?: Set<string>;
 	validFilePaths?: Set<string>;
 	/** Agent 正在处理请求或流式输出中时禁用编辑/删除等操作按钮 */
@@ -3822,15 +3817,7 @@ export const UserBubble = memo(function UserBubble(props: {
 						>
 							<Trash size={14} />
 						</button>
-						{props.showResendButton && (
-							<button
-								className="user-turn-action-btn"
-								onClick={() => props.onResendUserMessage?.(message)}
-								title={t("app.resendTitle")}
-							>
-								<Send size={14} />
-							</button>
-						)}
+
 					</>
 				)}
 			</div>
@@ -3838,7 +3825,6 @@ export const UserBubble = memo(function UserBubble(props: {
 	);
 }, (previous, next) =>
 	sameChatMessageForRender(previous.message, next.message) &&
-	previous.showResendButton === next.showResendButton &&
 	previous.agentRunning === next.agentRunning &&
 	previous.validCommandNames === next.validCommandNames &&
 	previous.validFilePaths === next.validFilePaths,

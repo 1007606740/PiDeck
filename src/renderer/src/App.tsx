@@ -1821,36 +1821,6 @@ export function App() {
   }, [activeMessages, renderedRuns]);
 
 
-  /**
-   * 判断用户消息是否可重发：仅当该消息为最后一条用户消息，且其后的 assistant 响应
-   * 被中止（系统提示）或执行失败（error 消息）时才显示重发按钮。
-   * 正常完成的 assistant 响应不应触发重发。
-   */
-  const resendableMessageIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (let i = activeMessages.length - 1; i >= 0; i--) {
-      const msg = activeMessages[i];
-      if (msg.role !== "user") continue;
-      // 从最后一条用户消息开始，检查其后最近的消息状态
-      let hasAbortOrError = false;
-      for (let j = i + 1; j < activeMessages.length; j++) {
-        const next = activeMessages[j];
-        if (next.role === "user") break; // 下一条用户消息，不属本轮
-        if (next.role === "error") { hasAbortOrError = true; break; }
-        if (next.role === "system") {
-          const meta = next.meta as Record<string, unknown> | undefined;
-          if (meta?.i18nKey === "app.abortRequested") { hasAbortOrError = true; break; }
-        }
-        if (next.role === "assistant" && next.text?.trim()) {
-          // 存在正常的 assistant 回复 → 不显示重发
-          break;
-        }
-      }
-      if (hasAbortOrError) ids.add(msg.id);
-      break; // 只检查最后一条用户消息
-    }
-    return ids;
-  }, [activeMessages]);
 
   // 从 activeUiRequest 提取正在进行的交互式请求（select/confirm/input/editor/batch_ask）
   // 这是 ask_question 在 pi RPC 模式下的表现方式：pi 通过 extension_ui_request 将
@@ -5516,76 +5486,6 @@ export function App() {
     }
   }
 
-  /** 重发防重复：通过 messageId 锁避免同一消息多次重发。
-   *  锁会在 agent 状态切回 idle 时自动清除（下方 useEffect），超时 30s 兜底释放。 */
-  const resendingIdsRef = useRef<Set<string>>(new Set());
-
-  async function resendUserMessage(message: ChatMessage) {
-    if (!activeAgentId || message.agentId !== activeAgentId) return;
-    if (resendingIdsRef.current.has(message.id)) return;
-    // 同文件截断重发需要 idle：只删当前用户消息及其本轮后代，保留更早历史，再重新 prompt。
-    if (isAgentBusy || isAgentStarting) {
-      showToast(t("message.busyGeneric"), 3000);
-      return;
-    }
-    resendingIdsRef.current.add(message.id);
-    // 30 秒兜底释放，防止锁泄漏
-    setTimeout(() => resendingIdsRef.current.delete(message.id), 30_000);
-
-    // 与 sendPrompt 一致：无论用户是否在回看历史，重发都强制贴底并持续跟随流式输出。
-    // 否则截断后消息变短、视口停在中部，新消息会“悬在上面一点”，ResizeObserver 也不会跟踪。
-    setAutoScroll(true);
-    autoScrollRef.current = true;
-    setShowScrollToBottom(false);
-    programmaticScrollRef.current = true;
-    const resendTimeline = timelineRef.current;
-    if (resendTimeline) {
-      resendTimeline.scrollTo({ top: resendTimeline.scrollHeight, behavior: "instant" });
-    }
-
-    try {
-      // 不走 fork（会新建会话文件），在同文件内截断后重发。
-      const prepared = await api.agents.prepareResend(activeAgentId, message.id);
-      const text =
-        typeof prepared?.text === "string" && prepared.text.trim()
-          ? prepared.text
-          : message.text;
-      const images =
-        prepared?.images && prepared.images.length > 0
-          ? prepared.images
-          : message.images;
-      const accepted = await submitPromptSnapshot(activeAgentId, text, images);
-      if (accepted !== true) return;
-
-      // 截断重载 + 重新 prompt 后，DOM 会先缩后涨；多帧贴底，保证新用户消息与流式回复都可见。
-      const stickToBottom = () => {
-        if (!autoScrollRef.current) return;
-        const timeline = timelineRef.current;
-        if (!timeline) return;
-        programmaticScrollRef.current = true;
-        timeline.scrollTo({ top: timeline.scrollHeight, behavior: "instant" });
-      };
-      requestAnimationFrame(() => {
-        stickToBottom();
-        requestAnimationFrame(stickToBottom);
-      });
-    } catch (error) {
-      showToast(
-        t("app.resendFailed", {
-          error: error instanceof Error ? error.message : String(error),
-        }),
-        4000,
-      );
-    }
-  }
-
-  /** agent 切回 idle 时释放所有重发锁，允许下次正常重发。 */
-  useEffect(() => {
-    if (activeAgent?.status !== "running" && activeAgent?.status !== "starting") {
-      resendingIdsRef.current.clear();
-    }
-  }, [activeAgent?.status]);
-
   /** 将主进程抛出的错误消息中的 BUSY_ 前缀码转为前端多语言文案 */
   function translateAgentErrorMessage(msg: string): string {
     if (msg.startsWith("BUSY_STREAMING:")) return t("message.busyStreaming");
@@ -7585,11 +7485,9 @@ export function App() {
                       message={message}
                       onPreviewImage={setPreviewImage}
                       onOpenFile={openFilePath}
-                      onResendUserMessage={resendUserMessage}
                       onEditMessage={editMessage}
                       onDeleteMessage={deleteMessage}
                       agentRunning={isAgentBusy}
-                      showResendButton={resendableMessageIds.has(message.id)}
                       validCommandNames={validCommandNames}
                       validFilePaths={validFilePaths}
                       onEnterMultiSelect={() => setMultiSelectOpen(true)}
