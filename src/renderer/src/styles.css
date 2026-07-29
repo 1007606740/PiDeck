@@ -6334,10 +6334,11 @@ body.is-terminal-resizing .terminal-resize-handle::before {
 .tool-card--ask {
   background: transparent;
 }
-/* ask dialog 打开时隐藏内联卡片的全部内容，避免对话中重复显示提问 */
+/* ask dialog 打开时隐藏时间线内重复的提问卡，只保留 composer 上方内联栏 */
 body.ask-bar-active .tool-card--ask,
 body.ask-bar-active .ask-card-preview,
-body.ask-bar-active .ask-question-card.pending {
+body.ask-bar-active .ask-question-card.pending,
+body.ask-bar-active .ask-inline-bar--timeline {
   display: none;
 }
 .tool-card--ask .tool-card-icon {

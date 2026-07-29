@@ -2483,22 +2483,36 @@ export function App() {
       }
 
       setActiveUiRequest((current) => {
-        // 如果 requestId 已存在且带了 completed 标记，清除该请求
-        if (current?.[request.requestId] && request.completed) {
+        // completed 事件：只删对应 requestId；其它 pending 请求保留。
+        if (request.completed) {
+          if (!current?.[request.requestId]) return current;
           const next = { ...current };
           delete next[request.requestId];
           if (Object.keys(next).length === 0) return null;
           return next;
         }
-        /* 用户通过 select 弹框自定义输入框提交自定义值后，Pi 会收到 "✎ 自行输入..."
-           选项值并发送 input 弹框让用户输入。此处检测到 pending 值后自动提交 input
-           弹框，对用户表现为一次提交即完成，无需二次输入。 */
+
+        /*
+         * select 自定义输入两步协议：
+         * 1) 用户在桌面端自定义框提交文本 → 先回 "✎ 自行输入..." 给扩展
+         * 2) 扩展再发 input UI 请求收集正文
+         * 这里检测到 pending 自定义文本时，立刻把真实值回给第二步 input，
+         * 不弹二次输入框。若 agentId 丢失则丢弃 pending，避免挂死。
+         */
         if (request.method === "input" && pendingCustomInputRef.current) {
           const value = pendingCustomInputRef.current;
           pendingCustomInputRef.current = "";
-          api.agents.sendUiResponse(activeAgentIdRef.current ?? "", request.requestId, { value });
-          return current; // 不显示 input 弹框
+          const targetAgentId = request.agentId || activeAgentIdRef.current;
+          if (targetAgentId) {
+            // 异步回填，避免在 setState updater 里直接做副作用
+            queueMicrotask(() => {
+              api.agents.sendUiResponse(targetAgentId, request.requestId, { value });
+            });
+          }
+          // 不把这个 input 请求放进 activeUiRequest，用户侧保持「一次提交」
+          return current;
         }
+
         // 新增或更新 UI 请求
         return { ...(current ?? {}), [request.requestId]: request as UiRequest };
       });
@@ -7589,10 +7603,18 @@ export function App() {
                 if (message.role === "system") {
                   const meta = message.meta as any;
                   if (meta?.type === "askQuestion") {
+                    // 正在用 composer 内联栏回答同一 request 时，隐藏时间线 pending 卡，避免双份 UI。
+                    // 已回答/取消的卡由 AskQuestionCard 内部 return null，最终结果看 ToolCard。
+                    const req = meta.uiRequest as { requestId?: string } | undefined;
+                    const isActivePending =
+                      meta.status === "pending" &&
+                      Boolean(req?.requestId) &&
+                      Boolean(activeUiAsk?.requestId) &&
+                      req?.requestId === activeUiAsk?.requestId;
+                    if (isActivePending) return null;
                     return (
                       <AskQuestionCard key={message.id} message={message} onRespond={(response) => {
-                        const req = meta.uiRequest;
-                        if (!req || !activeAgentId) return;
+                        if (!req?.requestId || !activeAgentId) return;
                         // cancelled 通过 sendUiResponse 正常发送。
                         // select/input/editor：cancelled 或 value:null → undefined/null。
                         // 原生 confirm：pi 会把 cancelled 解析成 false（与「否」同值）；
@@ -8150,9 +8172,13 @@ export function App() {
                             const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
                             const val = el?.value?.trim() ?? "";
                             if (val && activeUiAsk.requestId && activeAgentId) {
-                              dismissAsk();
+                              // 先缓存真实自定义文本，再回 OTHER_LABEL 触发扩展第二步 input。
+                              // 顺序不能反：onUiRequest(input) 可能很快到达，必须先写 pending。
                               pendingCustomInputRef.current = val;
-                              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
+                              dismissAsk();
+                              api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, {
+                                value: "✎ 自行输入...",
+                              });
                             }
                           }
                         }}
@@ -8164,9 +8190,11 @@ export function App() {
                           const el = document.getElementById("ask-inline-bar-custom-field") as HTMLInputElement | null;
                           const val = el?.value?.trim() ?? "";
                           if (val && activeUiAsk.requestId && activeAgentId) {
-                            dismissAsk();
                             pendingCustomInputRef.current = val;
-                            api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
+                            dismissAsk();
+                            api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, {
+                              value: "✎ 自行输入...",
+                            });
                           }
                         }}
                       >
