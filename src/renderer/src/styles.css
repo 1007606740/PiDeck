@@ -8463,6 +8463,23 @@ body.is-composer-resizing .composer-resize-handle::after {
 .composer-bar-btn.thinking:hover {
   color: var(--color-accent);
 }
+/* 上下文压缩：与 thinking 同列，压缩中用 accent 轻提示 */
+.composer-bar-btn.compact {
+  height: 28px;
+  padding: 0 8px;
+  gap: 4px;
+  color: var(--color-text-secondary);
+  font-style: normal;
+  font-weight: 600;
+}
+.composer-bar-btn.compact:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.composer-bar-btn.compact.compacting {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
 /* 分支只读展示：secondary 色而非 tertiary，避免灰色看不见 */
 .composer-bar-branch {
   display: inline-flex;

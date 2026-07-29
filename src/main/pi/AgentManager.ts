@@ -1288,22 +1288,34 @@ export class AgentManager {
 	 */
 	async compact(agentId: string, prompt?: string) {
 		const runtime = this.requireRuntime(agentId);
-		const trimmedPrompt = prompt?.trim();
+		// pi RPC 字段是 customInstructions（不是 prompt）；传错字段会被静默忽略，
+		// `/compact 自定义说明` 看起来像“命令无效/没按要求压缩”。
+		const customInstructions = prompt?.trim() || undefined;
 		const startTime = Date.now();
 
 		void this.appLogger?.info("agent", "Compact requested", {
 			agentId,
-			prompt: trimmedPrompt,
+			customInstructions,
 			hasSessionPath: !!runtime.tab.sessionPath,
 		});
 
-		// 标记压缩中，退出处理器据此区分压缩重启与异常崩溃
+		// 标记压缩中：exit 处理器据此区分压缩重启与异常崩溃；
+		// 同时参与 isCompacting，避免 UI 在 RPC 往返期间误判为空闲。
 		this.compactingAgents.add(agentId);
+		this.rpcCompactingAgents.add(agentId);
+		if (runtime.tab.status !== "error" && runtime.tab.status !== "closed") {
+			runtime.tab.status = "running";
+			this.emitState();
+			void this.emitRuntimeState(agentId);
+		}
 
 		try {
 			const response = await runtime.process.client.request(
-				trimmedPrompt ? { type: "compact", prompt: trimmedPrompt } : { type: "compact" },
-				120_000,
+				customInstructions
+					? { type: "compact", customInstructions }
+					: { type: "compact" },
+				// 大会话摘要可能远超 30s 默认超时；与 summarization + retry 对齐放宽。
+				180_000,
 			);
 			void this.appLogger?.info("agent", "Compact RPC response received", {
 				agentId,
@@ -1312,17 +1324,13 @@ export class AgentManager {
 				rpcError: response.error,
 			});
 
-			// 检查 RPC 返回的 success 字段：pi CLI 可能压缩成功但后续步骤抛异常，
-			// 此时 session 文件已写入但 RPC 仍返回错误。
+			// 手动 compact 不会再发 agent_settled；若 RPC 失败却仍把 status 留在 running，
+			// 侧栏/输入区会永久卡在 busy。失败必须明确抛出并在 finally 里收口状态。
 			if (!response.success) {
-				void this.appLogger?.warn("agent", "Compact RPC returned failure (session might still be written)", {
-					agentId,
-					error: response.error,
-				});
+				throw new Error(response.error || "Compaction failed");
 			}
 
-			this.compactingAgents.delete(agentId);
-			// 压缩成功且进程未退出，直接加载消息
+			// 压缩成功且进程未退出：重载消息，展示压缩边界卡片。
 			await this.loadMessages(agentId).catch(() => undefined);
 			void this.appLogger?.info("agent", "Compact completed successfully", {
 				agentId,
@@ -1339,31 +1347,50 @@ export class AgentManager {
 				hasSessionPath: !!runtime.tab.sessionPath,
 			});
 
-			this.compactingAgents.delete(agentId);
-
-			// 如果进程在压缩期间退出（pi 压缩后自动重启进程的行为），
-			// RPC 请求会因连接断开而失败，但压缩实际已完成。
-			// 尝试重连同一会话，不从 compact() 层面抛出错误。
+			// 如果进程在压缩期间退出（部分 pi 版本压缩后会重启），
+			// RPC 会因连接断开失败，但压缩可能已写入 session。尝试重连同一会话。
 			if (!processAlive && runtime.tab.sessionPath) {
 				void this.appLogger?.info("agent", "Compact: process exited, reattaching", {
 					agentId,
 				});
 				await this.reattachProcess(agentId, runtime.tab.sessionPath);
-				runtime.tab.status = "idle";
 				await this.loadMessages(agentId).catch(() => undefined);
 				this.addMessage(agentId, "system", "会话压缩完成");
-				this.emitState();
 				void this.appLogger?.info("agent", "Compact: reattach succeeded", {
 					agentId,
 					totalElapsedMs: Date.now() - startTime,
 				});
 			} else {
-				// 非退出相关的 RPC 错误，正常抛出
+				// 会话过小 / Already compacted / 鉴权失败等：把可读错误抛给渲染进程 toast。
 				throw error;
 			}
+		} finally {
+			// 手动 compact 路径没有可靠的 agent_settled；无论成败都必须收口 compacting 标记，
+			// 并把非 error/closed 会话恢复 idle，否则 UI 会“压缩完了还停着/一直转圈”。
+			this.finishManualCompaction(agentId);
 		}
 
 		return this.getRuntimeState(agentId);
+	}
+
+	/**
+	 * 手动压缩收口：清 compacting 集合，并在安全时把 tab 置 idle。
+	 * compact_start 会把 status 设为 running，但手动 compact 结束后通常没有 agent_settled。
+	 */
+	private finishManualCompaction(agentId: string) {
+		this.compactingAgents.delete(agentId);
+		this.rpcCompactingAgents.delete(agentId);
+		const runtime = this.agents.get(agentId);
+		if (!runtime) return;
+		if (
+			runtime.tab.status !== "error" &&
+			runtime.tab.status !== "closed" &&
+			runtime.tab.status !== "starting"
+		) {
+			runtime.tab.status = "idle";
+		}
+		this.emitState();
+		void this.emitRuntimeState(agentId);
 	}
 
 	/**
