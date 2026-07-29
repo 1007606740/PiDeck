@@ -70,6 +70,7 @@ import {
   expandPromptTemplates,
   getComposerEnterIntent,
   getComposerHistoryLineBounds,
+  isYesNoConfirmOptions,
   parseArgumentHint,
   resolveComposerHistoryDraft,
   translateBuiltinPromptDescription,
@@ -7992,12 +7993,18 @@ export function App() {
               activeUiAsk.method === "select" &&
               Array.isArray(activeUiAsk.options) &&
               activeUiAsk.options.length > 0;
+            // 扩展 confirm 实际走 select([是,否])：识别后只渲染是否按钮，不给自定义输入。
+            const isYesNoConfirm =
+              activeUiAsk.method === "confirm" ||
+              (activeUiAsk.method === "select" &&
+                !isPlanNextSelect &&
+                isYesNoConfirmOptions(activeUiAsk.options));
             // 按提问类型给取消 toast/提示：select 已有；confirm/input/editor 之前点叉会静默取消。
             const cancelHintKey = isPlanNextSelect
               ? "ask.planNextCancelHint"
               : isPlanReviseEditor
                 ? "ask.planReviseBackHint"
-                : activeUiAsk.method === "confirm"
+                : isYesNoConfirm
                   ? "ask.cancelConfirmHint"
                   : activeUiAsk.method === "input"
                     ? "ask.cancelInputHint"
@@ -8080,15 +8087,22 @@ export function App() {
                 <div className="ask-inline-bar-guide">{t("ask.planNextGuide")}</div>
               )}
               <div className="ask-inline-bar-body">
-                {activeUiAsk.method === "confirm" ? (
+                {isYesNoConfirm ? (
                   <div className="ask-inline-bar-options ask-inline-bar-options-confirm">
                     <button
                       className="ask-inline-bar-option ask-inline-bar-option-yes"
                       onClick={() => {
-                        if (activeUiAsk.requestId && activeAgentId) {
-                          dismissAsk();
-                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: true });
+                        if (!activeUiAsk.requestId || !activeAgentId) return;
+                        // confirm 扩展层走 select([是,否])，必须回传选项文案 "是"/"否"，
+                        // 不能发 confirmed 字段，否则 pi select 路径收不到答案。
+                        if (activeUiAsk.method === "select") {
+                          respondValue("是");
+                          return;
                         }
+                        dismissAsk();
+                        api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, {
+                          confirmed: true,
+                        });
                       }}
                     >
                       {t("common.true")}
@@ -8096,10 +8110,15 @@ export function App() {
                     <button
                       className="ask-inline-bar-option ask-inline-bar-option-no"
                       onClick={() => {
-                        if (activeUiAsk.requestId && activeAgentId) {
-                          dismissAsk();
-                          api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: false });
+                        if (!activeUiAsk.requestId || !activeAgentId) return;
+                        if (activeUiAsk.method === "select") {
+                          respondValue("否");
+                          return;
                         }
+                        dismissAsk();
+                        api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, {
+                          confirmed: false,
+                        });
                       }}
                     >
                       {t("common.false")}
@@ -8160,6 +8179,7 @@ export function App() {
                         </button>
                       );
                     })}
+                    {/* 仅普通 select 提供自定义输入；confirm/是否题不展示 */}
                     <div className="ask-inline-bar-custom-input">
                       <input
                         id="ask-inline-bar-custom-field"
