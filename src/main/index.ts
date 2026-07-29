@@ -21,16 +21,35 @@ import {
 	applyLinuxDisplayBackendWorkaround,
 	isUsingLinuxXWaylandWorkaround,
 } from "./linuxDisplayBackend";
+import {
+	readElectronChromiumSandboxPreference,
+	readSingleInstancePreference,
+} from "./settings/SettingsStore";
+import type { StartupWindowMode } from "../shared/types";
 // 使用 ?asset 后缀导入图标，electron-vite 会在构建时将其复制到输出目录并提供正确的运行时路径
 // 这解决了打包后 build/ 目录不在 asar 中导致托盘图标丢失的问题
 import iconPath from "../../build/icon.png?asset";
 
 applyLinuxDisplayBackendWorkaround();
 
-// Windows 上部分安全软件 / 旧 GPU 驱动会导致 Chromium 沙箱初始化触发原生断点异常（0x80000003），
-// 全局禁用沙箱。VS Code、Discord 等知名 Electron 桌面工具在 Windows 上同样默认禁用沙箱。
-if (process.platform === "win32") {
+// Chromium 沙箱开关必须在 app.ready 前生效。
+// 默认关闭：Windows 上部分安全软件/旧 GPU 驱动会在沙箱初始化时触发原生断点（0x80000003）。
+// 用户可在「开发设置」中开启 electronChromiumSandbox，重启后走 Chromium 默认沙箱。
+const electronChromiumSandboxEnabled = readElectronChromiumSandboxPreference();
+if (!electronChromiumSandboxEnabled) {
+	// 关闭沙箱时显式附带 no-sandbox，避免部分环境仍按默认策略启用。
 	app.commandLine.appendSwitch("no-sandbox");
+}
+
+// 单实例锁必须在 ready 前申请。默认开启：再次点击快捷方式/文件关联时复用窗口。
+// 关闭 singleInstance 后允许同时跑多个 PiDeck（调试/多配置场景）。
+const singleInstanceEnabled = readSingleInstancePreference();
+const gotSingleInstanceLock = singleInstanceEnabled
+	? app.requestSingleInstanceLock()
+	: true;
+if (singleInstanceEnabled && !gotSingleInstanceLock) {
+	// 已有实例在跑：退出当前进程，由 first instance 的 second-instance 事件唤起窗口。
+	app.quit();
 }
 
 // 开发模式下 stdout 管道可能断开导致 EPIPE 崩溃，全局静默处理
@@ -563,6 +582,14 @@ async function installDownloadedUpdate(filePath: string) {
 	await shell.openPath(filePath);
 }
 
+/** 从托盘/任务栏/二次启动唤起主窗口：处理最小化、隐藏到托盘两种状态。 */
+function focusMainWindow() {
+	if (!mainWindow || mainWindow.isDestroyed()) return;
+	if (mainWindow.isMinimized()) mainWindow.restore();
+	mainWindow.show();
+	mainWindow.focus();
+}
+
 function setupTray() {
 	// iconPath 由 electron-vite 的 ?asset 后缀自动解析，打包后也能正确定位
 	const icon = nativeImage.createFromPath(iconPath);
@@ -571,20 +598,14 @@ function setupTray() {
 
 	// 双击托盘图标恢复窗口（Windows 常见交互）
 	tray.on("double-click", () => {
-		if (mainWindow && !mainWindow.isDestroyed()) {
-			mainWindow.show();
-			mainWindow.focus();
-		}
+		focusMainWindow();
 	});
 
 	const contextMenu = Menu.buildFromTemplate([
 		{
 			label: "显示窗口",
 			click: () => {
-				if (mainWindow && !mainWindow.isDestroyed()) {
-					mainWindow.show();
-					mainWindow.focus();
-				}
+				focusMainWindow();
 			},
 		},
 		{ type: "separator" },
@@ -597,6 +618,49 @@ function setupTray() {
 		},
 	]);
 	tray.setContextMenu(contextMenu);
+}
+
+/** 启动窗口预设 → BrowserWindow 初始尺寸；fullscreen/maximized 另用 setFullScreen/maximize。 */
+function resolveStartupWindowBounds(mode: StartupWindowMode): {
+	width: number;
+	height: number;
+} {
+	switch (mode) {
+		case "normal-compact":
+			return { width: 1100, height: 720 };
+		case "normal-medium":
+			return { width: 1280, height: 840 };
+		case "normal-large":
+			return { width: 1480, height: 960 };
+		case "maximized":
+		case "fullscreen":
+		default:
+			// 全屏/最大化前仍给一个合理兜底尺寸，避免显示器信息异常时缩成最小窗
+			return { width: 1480, height: 960 };
+	}
+}
+
+/** 在窗口创建后应用启动尺寸预设；隐藏态先 maximize/fullscreen，减少首帧跳动。 */
+function applyStartupWindowMode(
+	window: BrowserWindow,
+	mode: StartupWindowMode,
+	showImmediately: boolean,
+) {
+	if (mode === "fullscreen") {
+		// setFullScreen 在某些平台要求窗口已 show；隐藏态先 maximize 再在 show 后补全屏。
+		if (showImmediately) {
+			window.setFullScreen(true);
+		} else {
+			window.maximize();
+			window.once("show", () => {
+				if (!window.isDestroyed()) window.setFullScreen(true);
+			});
+		}
+		return;
+	}
+	if (mode === "maximized") {
+		window.maximize();
+	}
 }
 
 async function openExternalUrl(url: string, forceSystem?: boolean) {
@@ -718,11 +782,14 @@ async function createWindow() {
 		? "#111315"
 		: (lightBgColors[lightBg] ?? "#f3f4f1");
 
+	const startupWindowMode = settingsStore.get().startupWindowMode ?? "maximized";
+	const startupBounds = resolveStartupWindowBounds(startupWindowMode);
+
 	mainWindow = new BrowserWindow({
 		show: showMainWindowImmediately,
 		backgroundColor,
-		width: 1480,
-		height: 960,
+		width: startupBounds.width,
+		height: startupBounds.height,
 		minWidth: 880,
 		minHeight: 640,
 		title: "",
@@ -732,7 +799,8 @@ async function createWindow() {
 		...(windowOptions.trafficLightPosition ? { trafficLightPosition: windowOptions.trafficLightPosition } : {}),
 		webPreferences: {
 			preload: mainPreloadPath,
-			sandbox: false,
+			// 与启动期 no-sandbox 开关一致；改配置后必须整应用重启。
+			sandbox: electronChromiumSandboxEnabled,
 			contextIsolation: true,
 			nodeIntegration: false,
 			webviewTag: true,
@@ -749,10 +817,12 @@ async function createWindow() {
 		printStartupInfo();
 	}
 
-	// 窗口保持隐藏时先最大化，再加载页面；避免 ready-to-show 后再最大化造成首帧布局跳变。
-	if (!showMainWindowImmediately) {
-		mainWindow.maximize();
-	}
+	// 按外观设置的启动预设调整尺寸；隐藏态先 maximize/fullscreen，减少首帧跳动。
+	applyStartupWindowMode(
+		mainWindow,
+		startupWindowMode,
+		showMainWindowImmediately,
+	);
 
 	// 所有 target="_blank" 或 window.open 的链接统一经同一入口处理，遵守用户设置的打开方式。
 	mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -3641,7 +3711,32 @@ function resetGenIdleTimer() {
 	if (genIdleTimer && typeof genIdleTimer === "object") genIdleTimer.unref?.();
 }
 
+// 二次启动：用户再次点快捷方式时，若单实例开启则唤起已有窗口（含托盘隐藏态）。
+if (singleInstanceEnabled && gotSingleInstanceLock) {
+	app.on("second-instance", () => {
+		if (mainWindow && !mainWindow.isDestroyed()) {
+			focusMainWindow();
+			return;
+		}
+		// 主窗口尚未创建或已被销毁时，等 ready 后再建窗（极少见竞态）。
+		void app.whenReady().then(() => {
+			if (mainWindow && !mainWindow.isDestroyed()) {
+				focusMainWindow();
+				return;
+			}
+			if (settingsStore) {
+				void createWindow().catch((error) => {
+					void appLogger?.error("app", "Failed to recreate window on second-instance", error);
+				});
+			}
+		});
+	});
+}
+
 app.whenReady().then(async () => {
+	// 未拿到单实例锁时不要继续初始化，避免第二进程短暂闪窗。
+	if (singleInstanceEnabled && !gotSingleInstanceLock) return;
+
 	projectStore = new ProjectStore();
 	fileSystemService = new FileSystemService();
 	sessionScanner = new SessionScanner();
@@ -3719,9 +3814,8 @@ app.whenReady().then(async () => {
 
 	// macOS dock 点击或任务栏点击时恢复窗口
 	app.on("activate", () => {
-		if (mainWindow) {
-			mainWindow.show();
-			mainWindow.focus();
+		if (mainWindow && !mainWindow.isDestroyed()) {
+			focusMainWindow();
 		} else {
 			void createWindow().catch((error) => {
 				void appLogger.error("app", "Failed to create window on activate", error);
