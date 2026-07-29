@@ -44,11 +44,25 @@ process.stderr.on("error", (err: NodeJS.ErrnoException) => {
 });
 
 process.on("uncaughtException", (error) => {
-	void appLogger?.error("process", "Uncaught exception", error);
+	// 绝不在这里 process.exit：目标是“失败可诊断”，而不是把偶发 spawn/事件错误变成整应用闪退。
+	// 尤其 macOS arm 上 pi 子进程 ENOENT/架构不匹配时，历史上曾出现 error 事件无 listener 升级为 uncaught。
+	void appLogger?.error("process", "Uncaught exception", {
+		name: error instanceof Error ? error.name : typeof error,
+		message: error instanceof Error ? error.message : String(error),
+		stack: error instanceof Error ? error.stack : undefined,
+		platform: process.platform,
+		arch: process.arch,
+	});
 	console.error("Uncaught exception:", error);
 });
 process.on("unhandledRejection", (reason) => {
-	void appLogger?.error("process", "Unhandled rejection", reason);
+	void appLogger?.error("process", "Unhandled rejection", {
+		reason: reason instanceof Error
+			? { name: reason.name, message: reason.message, stack: reason.stack }
+			: reason,
+		platform: process.platform,
+		arch: process.arch,
+	});
 	console.error("Unhandled rejection:", reason);
 });
 import { ipcChannels } from "../shared/ipc";
@@ -769,7 +783,19 @@ async function createWindow() {
 	);
 	mainWindow.webContents.on("render-process-gone", (_event, details) => {
 		const level: AppLogLevel = details.reason === "clean-exit" ? "info" : "error";
-		void appLogger.log(level, "app", "Main window renderer process gone", details);
+		void appLogger.log(level, "app", "Main window renderer process gone", {
+			...details,
+			platform: process.platform,
+			arch: process.arch,
+		});
+	});
+	// 子进程（含 GPU/utility）异常退出：Mac 上偶发“整窗闪一下”，需要留下 reason/exitCode。
+	app.on("child-process-gone", (_event, details) => {
+		void appLogger.error("process", "Child process gone", {
+			...details,
+			platform: process.platform,
+			arch: process.arch,
+		});
 	});
 	mainWindow.webContents.on("preload-error", (_event, preloadPath, error) => {
 		void appLogger.error("app", "Main window preload failed", {
@@ -3136,22 +3162,38 @@ function registerIpc() {
 			projectId: input.projectId,
 			sessionPath: input.sessionPath,
 			title: input.title,
+			platform: process.platform,
+			arch: process.arch,
 		});
-		const tab = await agentManager.create(input);
-		void appLogger.info("agent", "Agent create IPC completed", {
-			agentId: tab.id,
-			projectId: input.projectId,
-			status: tab.status,
-			sessionPath: tab.sessionPath,
-		});
-		void appLogger.info("agent", "Agent created", {
-			agentId: tab.id,
-			projectId: input.projectId,
-			title: tab.title,
-			sessionPath: tab.sessionPath,
-		});
-		// 不再自动为新会话创建飞书群；必须由用户在会话输入框的飞书菜单中手动连接后才同步。
-		return tab;
+		try {
+			const tab = await agentManager.create(input);
+			void appLogger.info("agent", "Agent create IPC completed", {
+				agentId: tab.id,
+				projectId: input.projectId,
+				status: tab.status,
+				sessionPath: tab.sessionPath,
+			});
+			void appLogger.info("agent", "Agent created", {
+				agentId: tab.id,
+				projectId: input.projectId,
+				title: tab.title,
+				sessionPath: tab.sessionPath,
+			});
+			// 不再自动为新会话创建飞书群；必须由用户在会话输入框的飞书菜单中手动连接后才同步。
+			return tab;
+		} catch (error) {
+			// createUnlocked 内部已尽量吞掉 pi 启动失败；这里兜底信任/项目查找等前置异常，
+			// 保证 IPC 层也有结构化日志，方便 Mac 闪退类反馈对照 userData/logs。
+			void appLogger.error("agent", "Agent create IPC failed", {
+				projectId: input.projectId,
+				sessionPath: input.sessionPath,
+				error: error instanceof Error ? error.message : String(error),
+				stack: error instanceof Error ? error.stack : undefined,
+				platform: process.platform,
+				arch: process.arch,
+			});
+			throw error;
+		}
 	});
 	ipcMain.handle(
 		ipcChannels.agentsRename,
