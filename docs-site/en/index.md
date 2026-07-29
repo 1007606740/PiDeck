@@ -36,3 +36,66 @@ features:
   - title: Cross-Platform
     details: Windows, macOS, and Linux installers via GitHub Releases. Source install supported via npm.
 ---
+
+<figure class="home-showcase">
+  <img src="/images/overview.png" alt="PiDeck workspace and conversation UI">
+  <figcaption>Workspace, sessions, file drawer, Git branches, and tool calls — all in one desktop window.</figcaption>
+</figure>
+
+## A Desktop Console for Local Development
+
+`PiDeck` is not a fork of pi. It is a lightweight Electron shell that launches multiple `pi --mode rpc` processes, then unifies project management, session management, config management, and desktop interaction. Agent capability still comes from native pi.
+
+<div class="info-strip">
+  <div>
+    <strong>One Agent Tab</strong>
+    One independent pi RPC process, so projects and conversations do not pollute each other.
+  </div>
+  <div>
+    <strong>One Workbench</strong>
+    Chat, files, history, config, terminal, and Git info live in the same desktop layout.
+  </div>
+  <div>
+    <strong>One Download Entry</strong>
+    Prebuilt packages are published on GitHub Releases, with in-app update prompts.
+  </div>
+</div>
+
+## Screenshots
+
+<div class="screenshot-grid">
+  <div class="screenshot-card">
+    <img src="/images/config.png" alt="Config management UI">
+    <strong>Config Management</strong>
+    <span>Visually edit models, auth, settings, and Skills.</span>
+  </div>
+  <div class="screenshot-card">
+    <img src="/images/slash-commands.png" alt="Slash commands and session history">
+    <strong>Commands & History</strong>
+    <span>Built-in slash command suggestions and fast session restore.</span>
+  </div>
+  <div class="screenshot-card">
+    <img src="/images/files.png" alt="File tree and session actions">
+    <strong>File Drawer</strong>
+    <span>Browse project files, Git status, and session changes.</span>
+  </div>
+  <div class="screenshot-card">
+    <img src="/images/terminal.png" alt="Terminal dock UI">
+    <strong>Terminal Dock</strong>
+    <span>Keep independent terminal tabs for the current agent.</span>
+  </div>
+</div>
+
+## Community
+
+Join the PiDeck QQ group for discussion and feedback:
+
+**1026218644**
+
+---
+
+## Next Steps
+
+- Ready to use: go to [Download & Install](/en/guide/getting-started#download--install).
+- Prefer source: see [Run from Source](/en/guide/getting-started#run-from-source).
+- Explore capabilities: see [Features](/en/guide/features).
