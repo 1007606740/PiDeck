@@ -103,6 +103,7 @@ import { t, type TranslationKey } from "../../i18n";
 import { showNotice } from "../../utils/notice";
 import { writeClipboard } from "../../utils/clipboard";
 import { filePathFromHref, stripFileLocation, toInternalFileHref } from "../../utils/fileLinks";
+import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { CloseIconButton, IconButton } from "../ui/IconButton";
 import { Modal } from "../ui/Modal";
@@ -509,10 +510,12 @@ export function SessionStatus(props: {
 }) {
 	const state = props.state;
 	if (!state) return null;
+	// 会话头部状态用轻量 Badge，与左右分栏/新会话按钮同一套素雅边框语言，
+	// 避免各 chip 自定义高度/圆角造成头部控件参差。
 	return (
 		<div className="session-status">
 			{state.contextPercent != null && (
-				<span className="ctx-chip">
+				<Badge variant="outline" badgeSize="sm" className="ctx-chip">
 					{t("app.ctx")}:{" "}
 					{state.contextPercent?.toFixed?.(1) ??
 						state.contextPercent}
@@ -523,10 +526,10 @@ export function SessionStatus(props: {
 					{state.outputTokens != null && (
 						<>{" "}↓ {formatCompact(state.outputTokens)}</>
 					)}
-				</span>
+				</Badge>
 			)}
 			{(state.cacheHitPercent != null || state.cacheTotal != null) && (
-				<span className="cache-chip">
+				<Badge variant="outline" badgeSize="sm" className="cache-chip">
 					{state.cacheHitPercent != null && (
 						<>{t("app.cacheHit")}: {state.cacheHitPercent?.toFixed?.(0) ?? state.cacheHitPercent}%</>
 					)}
@@ -534,12 +537,17 @@ export function SessionStatus(props: {
 					{state.cacheTotal != null && (
 						<>{t("app.cache")}: {formatCompact(state.cacheTotal)}</>
 					)}
-				</span>
+				</Badge>
 			)}
 			{state.cost != null && (
-				<span className="cost-chip" title={t("app.totalCost")}>
+				<Badge
+					variant="outline"
+					badgeSize="sm"
+					className="cost-chip"
+					title={t("app.totalCost")}
+				>
 					${state.cost.toFixed(3)}
-				</span>
+				</Badge>
 			)}
 		</div>
 	);

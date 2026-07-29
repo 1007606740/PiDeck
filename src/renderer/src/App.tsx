@@ -61,7 +61,7 @@ import { TrustConfirmModal } from "./components/app/TrustConfirmModal";
 import { TerminalDock } from "./components/terminal/TerminalDock";
 import { FeishuLinkIndicator } from "./components/feishu/FeishuLinkIndicator";
 import { useFeishuBridge } from "./hooks/useFeishuBridge";
-import { CloseIconButton } from "./components/ui/IconButton";
+import { CloseIconButton, IconButton } from "./components/ui/IconButton";
 import { writeClipboard } from "./utils/clipboard";
 import { Toaster } from "./components/ui/sonner";
 import { THINKING_LEVELS } from "./components/app/AppParts";
@@ -6401,17 +6401,17 @@ export function App() {
           </button>
         </div>
       )}
-      {/* 侧栏折叠后的浮动恢复入口 */}
+      {/* 侧栏折叠后的浮动恢复入口：与工具栏/会话头部分栏按钮同尺寸 */}
       {listCollapsed && (
-        <button
-          type="button"
+        <IconButton
+          label={t("app.expandList")}
+          variant="outline"
+          buttonSize="sm"
           className="list-toggle-native floating"
-          title={t("app.expandList")}
-          aria-label={t("app.expandList")}
           onClick={toggleListCollapsed}
         >
           <PanelLeft size={14} strokeWidth={2} aria-hidden="true" />
-        </button>
+        </IconButton>
       )}
       <aside
         className="chat-list-pane v3-braun"
@@ -6422,16 +6422,16 @@ export function App() {
             {/* 官方 π 标 + 字标；agent 启停时通过 replayToken 重播动画 */}
             <BrandLockup replayToken={brandLogoReplayToken} />
           </div>
-          {/* 左侧工具栏折叠入口 */}
-          <button
-            type="button"
+          {/* 左侧工具栏折叠入口：与右侧 header-drawer-toggle 共用 IconButton 尺寸 */}
+          <IconButton
+            label={t("app.collapseList")}
+            variant="outline"
+            buttonSize="sm"
             className="list-toggle-native"
-            title={t("app.collapseList")}
-            aria-label={t("app.collapseList")}
             onClick={toggleListCollapsed}
           >
             <PanelLeft size={14} strokeWidth={2} aria-hidden="true" />
-          </button>
+          </IconButton>
         </div>
         <button
           className="collapse-button list-collapse"
@@ -7452,16 +7452,17 @@ export function App() {
                 </div>
               </div>
               </div>
-              {/* 右侧边栏开关 */}
-              <button
-                type="button"
-                className={`header-drawer-toggle${drawer && !drawerCollapsed ? " active" : ""}`}
-                title={drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")}
-                aria-label={drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")}
+              {/* 右侧边栏开关：与左侧 list-toggle 同组件同尺寸，和「新会话」同一 outline 语言 */}
+              <IconButton
+                label={drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")}
+                variant="outline"
+                buttonSize="sm"
+                active={Boolean(drawer && !drawerCollapsed)}
+                className="header-drawer-toggle"
                 onClick={toggleRightDrawer}
               >
                 <PanelRight size={14} strokeWidth={2} aria-hidden="true" />
-              </button>
+              </IconButton>
             </>
           </div>
         </header>
