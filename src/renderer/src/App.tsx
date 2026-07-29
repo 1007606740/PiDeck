@@ -24,7 +24,6 @@ import {
   Code,
   MessageCircle,
   MessageSquare,
-  PanelLeftClose,
   Search,
   Play,
   Plus,
@@ -70,7 +69,9 @@ import {
   buildComposerPromptSubmission,
   expandPromptTemplates,
   getComposerEnterIntent,
+  getComposerHistoryLineBounds,
   parseArgumentHint,
+  resolveComposerHistoryDraft,
   translateBuiltinPromptDescription,
 } from "./composerBehavior";
 import {
@@ -4973,13 +4974,21 @@ export function App() {
       }
     }
 
-    // 历史命令导航:只在光标位于第一行时生效
+    // 历史命令导航：只在光标位于第一行/最后一行时生效。
+    // 普通输入只更新 livePromptByAgentRef、不触发 App 重渲染，因此这里必须读 live 草稿，
+    // 不能用闭包里的 prompt——否则 ArrowUp 会把“上次重渲染时的半截文本”当草稿保存，
+    // ArrowDown 恢复后就会丢掉中间继续输入的内容。
     const editor = event.currentTarget;
     const cursorPos = getCaretOffsetOf(editor);
-    const textBeforeCursor = prompt.substring(0, cursorPos);
-    const isFirstLine = !textBeforeCursor.includes('\n');
-    const textAfterCursor = prompt.substring(cursorPos);
-    const isLastLine = !textAfterCursor.includes('\n');
+    const liveComposerDraft = resolveComposerHistoryDraft({
+      activeAgentId: activeAgentIdRef.current,
+      livePromptByAgent: livePromptByAgentRef.current,
+      renderedPrompt: prompt,
+    });
+    const { isFirstLine, isLastLine } = getComposerHistoryLineBounds(
+      liveComposerDraft,
+      cursorPos,
+    );
 
     // 当前 Agent 的历史记录
     const agentHistory = promptHistoryRef.current[activeAgentIdRef.current ?? ''] ?? [];
@@ -4987,9 +4996,9 @@ export function App() {
     if (event.key === "ArrowUp" && isFirstLine && agentHistory.length > 0) {
       event.preventDefault();
 
-      // 首次导航时保存当前输入
+      // 首次导航时保存当前 live 草稿（不是可能过期的 rendered prompt）
       if (!historyNavigating) {
-        setSavedPrompt(prompt);
+        setSavedPrompt(liveComposerDraft);
         setHistoryNavigating(true);
         const newIndex = 0;
         setHistoryIndex(newIndex);
@@ -5033,9 +5042,11 @@ export function App() {
     if (event.key === "Escape") {
       const el = event.currentTarget;
       const cursor = getCaretOffsetOf(el);
-      const liveComposerPrompt = activeAgentIdRef.current
-        ? (livePromptByAgentRef.current[activeAgentIdRef.current] ?? prompt)
-        : prompt;
+      const liveComposerPrompt = resolveComposerHistoryDraft({
+        activeAgentId: activeAgentIdRef.current,
+        livePromptByAgent: livePromptByAgentRef.current,
+        renderedPrompt: prompt,
+      });
       const result = clearSuggestionTrigger(liveComposerPrompt, cursor);
       setPrompt(result.text);
       setComposerCursor(result.cursor);
@@ -5506,6 +5517,17 @@ export function App() {
     // 30 秒兜底释放，防止锁泄漏
     setTimeout(() => resendingIdsRef.current.delete(message.id), 30_000);
 
+    // 与 sendPrompt 一致：无论用户是否在回看历史，重发都强制贴底并持续跟随流式输出。
+    // 否则截断后消息变短、视口停在中部，新消息会“悬在上面一点”，ResizeObserver 也不会跟踪。
+    setAutoScroll(true);
+    autoScrollRef.current = true;
+    setShowScrollToBottom(false);
+    programmaticScrollRef.current = true;
+    const resendTimeline = timelineRef.current;
+    if (resendTimeline) {
+      resendTimeline.scrollTo({ top: resendTimeline.scrollHeight, behavior: "instant" });
+    }
+
     try {
       // 不走 fork（会新建会话文件），在同文件内截断后重发。
       const prepared = await api.agents.prepareResend(activeAgentId, message.id);
@@ -5517,7 +5539,21 @@ export function App() {
         prepared?.images && prepared.images.length > 0
           ? prepared.images
           : message.images;
-      await submitPromptSnapshot(activeAgentId, text, images);
+      const accepted = await submitPromptSnapshot(activeAgentId, text, images);
+      if (accepted !== true) return;
+
+      // 截断重载 + 重新 prompt 后，DOM 会先缩后涨；多帧贴底，保证新用户消息与流式回复都可见。
+      const stickToBottom = () => {
+        if (!autoScrollRef.current) return;
+        const timeline = timelineRef.current;
+        if (!timeline) return;
+        programmaticScrollRef.current = true;
+        timeline.scrollTo({ top: timeline.scrollHeight, behavior: "instant" });
+      };
+      requestAnimationFrame(() => {
+        stickToBottom();
+        requestAnimationFrame(stickToBottom);
+      });
     } catch (error) {
       showToast(
         t("app.resendFailed", {
@@ -6319,33 +6355,7 @@ export function App() {
         <div className="window-drag-layer" aria-hidden="true" />
       )}
       {!settings.useNativeTitleBar && (
-        <div className="window-controls-left">
-          <button
-            type="button"
-            className={`window-control sidebar-toggle${listCollapsed ? " collapsed" : ""}`}
-            aria-label={listCollapsed ? t("app.expandList") : t("app.collapseList")}
-            title={listCollapsed ? t("app.expandList") : t("app.collapseList")}
-            onClick={toggleListCollapsed}
-          >
-            <PanelLeft size={13} strokeWidth={2.2} aria-hidden="true" />
-          </button>
-        </div>
-      )}
-      {!settings.useNativeTitleBar && (
         <div className="window-controls" aria-label={t("app.windowControls")}>
-          <button
-            type="button"
-            className={`window-control drawer-toggle${drawer && !drawerCollapsed ? " active" : ""}`}
-            aria-label={
-              drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")
-            }
-            title={
-              drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")
-            }
-            onClick={toggleRightDrawer}
-          >
-            <PanelRight size={13} strokeWidth={2.2} aria-hidden="true" />
-          </button>
           <button
             type="button"
             className={`window-control pin${windowAlwaysOnTop ? " active" : ""}`}
@@ -6391,8 +6401,8 @@ export function App() {
           </button>
         </div>
       )}
-      {/* 系统标题栏模式 + 列表已折叠：侧栏内容整体隐藏，需浮动按钮恢复 */}
-      {settings.useNativeTitleBar && listCollapsed && (
+      {/* 侧栏折叠后的浮动恢复入口 */}
+      {listCollapsed && (
         <button
           type="button"
           className="list-toggle-native floating"
@@ -6412,18 +6422,16 @@ export function App() {
             {/* 官方 π 标 + 字标；agent 启停时通过 replayToken 重播动画 */}
             <BrandLockup replayToken={brandLogoReplayToken} />
           </div>
-          {/* 系统标题栏模式下左上角没有 window-controls-left，折叠入口放到工具栏 */}
-          {settings.useNativeTitleBar && (
-            <button
-              type="button"
-              className="list-toggle-native"
-              title={t("app.collapseList")}
-              aria-label={t("app.collapseList")}
-              onClick={toggleListCollapsed}
-            >
-              <PanelLeft size={14} strokeWidth={2} aria-hidden="true" />
-            </button>
-          )}
+          {/* 左侧工具栏折叠入口 */}
+          <button
+            type="button"
+            className="list-toggle-native"
+            title={t("app.collapseList")}
+            aria-label={t("app.collapseList")}
+            onClick={toggleListCollapsed}
+          >
+            <PanelLeft size={14} strokeWidth={2} aria-hidden="true" />
+          </button>
         </div>
         <button
           className="collapse-button list-collapse"
@@ -7444,18 +7452,16 @@ export function App() {
                 </div>
               </div>
               </div>
-              {/* 系统标题栏模式下右上角没有 window-controls，右侧边栏开关放到会话头部 */}
-              {settings.useNativeTitleBar && (
-                <button
-                  type="button"
-                  className={`header-drawer-toggle${drawer && !drawerCollapsed ? " active" : ""}`}
-                  title={drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")}
-                  aria-label={drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")}
-                  onClick={toggleRightDrawer}
-                >
-                  <PanelRight size={14} strokeWidth={2} aria-hidden="true" />
-                </button>
-              )}
+              {/* 右侧边栏开关 */}
+              <button
+                type="button"
+                className={`header-drawer-toggle${drawer && !drawerCollapsed ? " active" : ""}`}
+                title={drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")}
+                aria-label={drawer && !drawerCollapsed ? t("app.collapseDrawer") : t("app.expandDrawer")}
+                onClick={toggleRightDrawer}
+              >
+                <PanelRight size={14} strokeWidth={2} aria-hidden="true" />
+              </button>
             </>
           </div>
         </header>
@@ -7586,9 +7592,10 @@ export function App() {
                       <AskQuestionCard key={message.id} message={message} onRespond={(response) => {
                         const req = meta.uiRequest;
                         if (!req || !activeAgentId) return;
-                        // cancelled 通过 sendUiResponse 正常发送：pi 的 rpc-mode 对
-                        // select/input/editor 返回 undefined（卡片显示"已取消"），
-                        // confirm 返回 false（同"否"，pi 的 ctx.ui.confirm() 不区分取消和否）
+                        // cancelled 通过 sendUiResponse 正常发送。
+                        // select/input/editor：cancelled 或 value:null → undefined/null。
+                        // 原生 confirm：pi 会把 cancelled 解析成 false（与「否」同值）；
+                        // ask_question 扩展已把 confirm 改走 select，避免点叉误答成否。
                         if (response.cancelled) {
                           setCancellingUi(true);
                           api.agents.sendUiResponse(activeAgentId, req.requestId, response);
@@ -7915,6 +7922,8 @@ export function App() {
               activeAgentId={activeAgentId}
               onCancel={() => {
                 if (activeUiAsk.requestId && activeAgentId) {
+                  // 与单问一致：关闭问卷时给明确 toast，避免静默取消。
+                  showToast(t("ask.cancelBatchHint"));
                   setActiveUiRequest((current) => {
                     if (!current) return null;
                     const next = { ...current };
@@ -7960,11 +7969,18 @@ export function App() {
               activeUiAsk.method === "select" &&
               Array.isArray(activeUiAsk.options) &&
               activeUiAsk.options.length > 0;
+            // 按提问类型给取消 toast/提示：select 已有；confirm/input/editor 之前点叉会静默取消。
             const cancelHintKey = isPlanNextSelect
               ? "ask.planNextCancelHint"
               : isPlanReviseEditor
                 ? "ask.planReviseBackHint"
-                : "ask.cancelHint";
+                : activeUiAsk.method === "confirm"
+                  ? "ask.cancelConfirmHint"
+                  : activeUiAsk.method === "input"
+                    ? "ask.cancelInputHint"
+                    : activeUiAsk.method === "editor"
+                      ? "ask.cancelEditorHint"
+                      : "ask.cancelHint";
 
             const dismissAsk = () => {
               if (!activeUiAsk.requestId || !activeAgentId) return;
@@ -8022,14 +8038,14 @@ export function App() {
               <div className="ask-inline-bar-header">
                 <MessageCircle size={14} />
                 <span>{(isPlanNextSelect || isPlanReviseEditor) ? t("app.composerModePlan") : t("ask.toolName")}</span>
-                {(isSelectWithOptions || isPlanReviseEditor) && (
-                  <span className="ask-inline-bar-cancel-hint">{t(cancelHintKey)}</span>
-                )}
+                {/* 所有单问类型都展示取消语义，避免只有 select 有提示。 */}
+                <span className="ask-inline-bar-cancel-hint">{t(cancelHintKey)}</span>
                 <button
                   className="ask-inline-bar-close"
                   title={isPlanReviseEditor ? t("ask.planReviseBack") : t("common.close")}
                   onClick={() => {
-                    if (isSelectWithOptions || isPlanReviseEditor) showToast(t(cancelHintKey));
+                    // 点叉一律 toast：select/confirm/input/editor/plan 专用文案已由 cancelHintKey 区分。
+                    showToast(t(cancelHintKey));
                     respondCancel();
                   }}
                 >

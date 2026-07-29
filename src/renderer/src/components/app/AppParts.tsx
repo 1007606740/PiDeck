@@ -2430,6 +2430,17 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 	};
 
 	const handleCancel = () => {
+		// 消息流内卡片取消也给 toast，与 composer 内联栏行为一致。
+		const method = String(uiRequest?.method ?? "input");
+		const cancelHint =
+			method === "confirm"
+				? t("ask.cancelConfirmHint")
+				: method === "input"
+					? t("ask.cancelInputHint")
+					: method === "editor"
+						? t("ask.cancelEditorHint")
+						: t("ask.cancelHint");
+		showNotice(cancelHint);
 		setCancelling(true);
 		props.onRespond?.({ cancelled: true });
 	};
@@ -2651,16 +2662,18 @@ export const BatchAskInlineBar = memo(function BatchAskInlineBar(props: {
 
 	return (
 		<div className="ask-inline-bar ask-inline-bar--batch">
-			{/* 标题行：进度 + 关闭 */}
+			{/* 标题行：进度 + 取消提示 + 关闭 */}
 			<div className="ask-inline-bar-header">
 				<MessageCircle size={14} />
 				<span>{uiRequest.title || t("ask.batchTitle", { count: String(totalQ) })}</span>
 				<span className="ask-inline-bar-batch-progress">
 					{t("ask.batchProgress", { done: String(answeredCount), total: String(totalQ) })}
 				</span>
+				<span className="ask-inline-bar-cancel-hint">{t("ask.cancelBatchHint")}</span>
 				<button
 					className="ask-inline-bar-close"
 					onClick={props.onCancel}
+					title={t("ask.cancelBatchHint")}
 					aria-label={t("common.cancel")}
 				>
 					<X size={14} />
