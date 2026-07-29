@@ -14,6 +14,8 @@
 - **Lopution** ([@Lopution](https://github.com/Lopution)) — 跨桌面边界 WSL 路径处理 (#84)
 - **buaassp** ([@buaassp](https://github.com/buaassp)) — 隐藏内部 pi-subagent 会话 (#57)
 - **zzq168281-coder** ([@zzq168281-coder](https://github.com/zzq168281-coder)) — 本地文件链接可交互、todo 挂件字体跟随界面设置 (#103)
+- **weishiair** ([@weishiair](https://github.com/weishiair)) — 禁用/冲突让位时删除内置扩展用户目录文件，避免第三方扩展工具冲突导致 RPC 失败
+- **clancyclaw** ([@clancyclaw](https://github.com/clancyclaw)) — 修复 RichInput 换行被吞掉，保证多行草稿完整保留
 
 以及所有提交 Issue、反馈建议和帮助推广的用户。
 

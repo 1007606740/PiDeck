@@ -14,6 +14,8 @@ Thanks to everyone who has contributed to PiDeck!
 - **Lopution** ([@Lopution](https://github.com/Lopution)) — WSL path handling across desktop boundaries (#84)
 - **buaassp** ([@buaassp](https://github.com/buaassp)) — Hide internal pi-subagent sessions (#57)
 - **zzq168281-coder** ([@zzq168281-coder](https://github.com/zzq168281-coder)) — Interactive local file links; todo widget honors interface fonts (#103)
+- **weishiair** ([@weishiair](https://github.com/weishiair)) — Delete built-in extension files on disable/conflict yield so third-party tools no longer clash and break RPC
+- **clancyclaw** ([@clancyclaw](https://github.com/clancyclaw)) — Preserve RichInput newlines so multi-line drafts stay intact
 
 And everyone who filed issues, shared feedback, and helped spread the word.
 

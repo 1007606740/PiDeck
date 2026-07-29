@@ -131,6 +131,8 @@ Thanks to all contributors for their PRs, issues, and feedback in this release:
 - **@1900EasonJin** — System titlebar sidebar toggles (#104); pet stuck-state fix (#107)
 - **@zzq168281-coder** — Interactive local file links & todo font honor (#103)
 - **@me9rez** — TypeScript incremental build output hygiene (#97)
+- **@weishiair** — Delete residual built-in extension files on disable to stop tool conflicts/RPC failures
+- **@clancyclaw** — Preserve RichInput newlines for multi-line drafts
 
 Special thanks to **微时佬友** for providing the Grok model service used in our
 community testing environment 🎉

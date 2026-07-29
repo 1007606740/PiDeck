@@ -111,6 +111,26 @@ title: 贡献者
   </div>
 </div>
 
+<div class="contributor-card">
+  <div class="contributor-avatar">ws</div>
+  <div class="contributor-info">
+    <strong>weishiair</strong>
+    <span class="contributor-handle">@weishiair</span>
+    <p>禁用/冲突让位时删除内置扩展用户目录文件，避免第三方扩展工具冲突导致 RPC 失败</p>
+    <a href="https://github.com/weishiair" target="_blank" rel="noreferrer">GitHub</a>
+  </div>
+</div>
+
+<div class="contributor-card">
+  <div class="contributor-avatar">cl</div>
+  <div class="contributor-info">
+    <strong>clancyclaw</strong>
+    <span class="contributor-handle">@clancyclaw</span>
+    <p>修复 RichInput 换行被吞掉，保证多行草稿完整保留</p>
+    <a href="https://github.com/clancyclaw" target="_blank" rel="noreferrer">GitHub</a>
+  </div>
+</div>
+
 </div>
 
 <style scoped>

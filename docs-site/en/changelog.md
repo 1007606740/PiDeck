@@ -19,4 +19,4 @@ See the [GitHub Releases](https://github.com/ayuayue/PiDeck/releases) page for t
 - Fixes: pet stuck states (#107), titlebar sidebar toggles (#104), stop afterglow,
   built-in extension disable cleanup, manual compact state, clipboard focus
 
-Contributors this cycle: **@1900EasonJin** (#104, #107), **@zzq168281-coder** (#103), **@me9rez** (#97)
+Contributors this cycle: **@1900EasonJin** (#104, #107), **@zzq168281-coder** (#103), **@me9rez** (#97), **@weishiair**, **@clancyclaw**
