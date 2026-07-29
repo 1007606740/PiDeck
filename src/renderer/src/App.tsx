@@ -81,7 +81,7 @@ import {
   isSameSessionPath,
   isSidebarSessionRowActive,
 } from "./agentListDisplay";
-import { resolveLocale, setI18nLocale, t } from "./i18n";
+import { resolveLocale, setI18nLocale, t, type TranslationKey } from "./i18n";
 import { mergeAgentRuntimeState } from "./utils/agentRuntimeState";
 import { sameSessionSummaryList } from "./utils/sessionSummaryList";
 import {
@@ -2397,6 +2397,14 @@ export function App() {
         [payload.agentId]: payload.thinking,
       })),
     );
+    // 主进程瞬时状态反馈（如 abort 已请求停止）走 toast，不进会话时间线
+    const offNotice = api.agents.onNotice((payload) => {
+      const text =
+        payload.i18nKey
+          ? t(payload.i18nKey as TranslationKey)
+          : payload.message;
+      showNotice(text, payload.duration ?? 2500, payload.kind ?? "info");
+    });
     // 监听 Extension UI 请求：对话类渲染为提问卡片；setWidget 类作为 composer 上方的轻量状态块展示。
     const offUiRequest = api.agents.onUiRequest((request) => {
       if (request.method === "notify") {
@@ -2547,6 +2555,7 @@ export function App() {
       offOpenInBrowser?.();
       offRuntimeState();
       offThinking();
+      offNotice();
       offUiRequest();
       offTrustRequest();
       offRpcLog();
@@ -4641,11 +4650,18 @@ export function App() {
 
   async function abortAgent(agentId = activeAgentId) {
     if (!agentId || isPendingAgentId(agentId)) return;
-    // 立即清除流式状态，让思考气泡和 loading 立刻消失，不等后端 RPC 返回
+    // 立即清除流式状态与本地 thinking 缓存，让思考气泡和 loading 立刻消失，不等后端 RPC 返回。
+    // 若不先清 streamingThinking，后端残留 delta 被拦截前 UI 仍会继续显示旧思考。
     const previous = runtimeStateByAgentRef.current[agentId];
     if (previous) {
       applyAgentRuntimeState(agentId, { ...previous, isStreaming: false });
     }
+    setStreamingThinking((current) => {
+      if (!(agentId in current)) return current;
+      const next = { ...current };
+      delete next[agentId];
+      return next;
+    });
     await api.agents.abort(agentId);
     // 不调用 refreshRuntimeState：AgentManager.abort() 会通过 emitState 推送正确状态，
     // 避免后端 get_state 返回过时的 isStreaming: true 覆盖前端立刻设的 false。
