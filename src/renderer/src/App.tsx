@@ -8030,9 +8030,11 @@ export function App() {
             const respondCancel = () => {
               if (!activeUiAsk.requestId || !activeAgentId) return;
               dismissAsk();
-              // 普通 select 取消：发 value:null（与 abort 路径一致），避免 cancelled→undefined
-              // 被旧版 ask_question 的 `?? opts[0]` 回落成第一项。Plan 下一步/修改计划仍用 cancelled。
-              if (activeUiAsk.method === "select" && !isPlanNextSelect) {
+              // 普通 select / 是否题 取消：必须发 value:null（select 协议），
+              // 不能发 cancelled:true —— 否则 pi 可能回 undefined，旧 ask 扩展会误选第一项。
+              // 扩展层 confirm 也是 select([是,否])，取消语义与 select 相同。
+              // Plan 下一步/修改计划仍用 cancelled（扩展自己解释返回）。
+              if ((activeUiAsk.method === "select" || isYesNoConfirm) && !isPlanNextSelect) {
                 api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, {
                   value: null,
                 });
@@ -8089,37 +8091,20 @@ export function App() {
               <div className="ask-inline-bar-body">
                 {isYesNoConfirm ? (
                   <div className="ask-inline-bar-options ask-inline-bar-options-confirm">
+                    {/*
+                     * 仅 UI 收敛为是否两钮；协议仍是 select：
+                     * 选是/否 → value:"是"/"否"；点叉 → value:null。
+                     * 绝不能发 confirmed 字段，取消也不能走 cancelled:true。
+                     */}
                     <button
                       className="ask-inline-bar-option ask-inline-bar-option-yes"
-                      onClick={() => {
-                        if (!activeUiAsk.requestId || !activeAgentId) return;
-                        // confirm 扩展层走 select([是,否])，必须回传选项文案 "是"/"否"，
-                        // 不能发 confirmed 字段，否则 pi select 路径收不到答案。
-                        if (activeUiAsk.method === "select") {
-                          respondValue("是");
-                          return;
-                        }
-                        dismissAsk();
-                        api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, {
-                          confirmed: true,
-                        });
-                      }}
+                      onClick={() => respondValue("是")}
                     >
                       {t("common.true")}
                     </button>
                     <button
                       className="ask-inline-bar-option ask-inline-bar-option-no"
-                      onClick={() => {
-                        if (!activeUiAsk.requestId || !activeAgentId) return;
-                        if (activeUiAsk.method === "select") {
-                          respondValue("否");
-                          return;
-                        }
-                        dismissAsk();
-                        api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, {
-                          confirmed: false,
-                        });
-                      }}
+                      onClick={() => respondValue("否")}
                     >
                       {t("common.false")}
                     </button>
