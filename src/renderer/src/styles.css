@@ -966,8 +966,8 @@ body.is-resizing .wechat-shell {
   position: fixed;
   top: 0;
   left: 0;
-  /* 右侧留给：右栏切换 + 置顶/最小化/最大化/关闭（5 个控件） */
-  right: calc(var(--window-control-width, 36px) * 5);
+  /* 右侧留给：置顶/最小化/最大化/关闭（4 个控件） */
+  right: calc(var(--window-control-width, 36px) * 4);
   height: var(--window-drag-height);
   z-index: 900;
   background: var(--color-bg-sidebar);
@@ -980,23 +980,12 @@ body.is-resizing .wechat-shell {
   z-index: 920;
   display: grid;
   /* 右栏切换 + pin + min + max + close */
-  grid-template-columns: repeat(5, var(--window-control-width, 36px));
+  grid-template-columns: repeat(4, var(--window-control-width, 36px));
   height: var(--window-drag-height);
   background: var(--color-bg-sidebar);
   -webkit-app-region: no-drag;
 }
-/* 左侧标题栏按钮（如侧边栏切换），布局与右侧 window-controls 对称 */
-.window-controls-left {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 920;
-  display: grid;
-  grid-template-columns: repeat(1, var(--window-control-width, 36px));
-  height: var(--window-drag-height);
-  background: transparent;
-  -webkit-app-region: no-drag;
-}
+
 .window-control {
   border: 0;
   border-radius: 0;
@@ -3064,7 +3053,7 @@ body.is-terminal-resizing {
   background: transparent;
 }
 
-/* 系统标题栏模式下的左侧列表开关：样式对齐 header-drawer-toggle */
+/* 左侧列表开关：样式对齐 header-drawer-toggle */
 .list-toggle-native {
   display: inline-flex;
   align-items: center;
@@ -3102,13 +3091,13 @@ body.is-terminal-resizing {
   z-index: 920;
 }
 
-/* 系统标题栏模式下的右侧边栏开关：宽高对齐 session-combo-trigger */
+/* 右侧边栏开关：图标按钮尺寸，对齐会话头部操作按钮 */
 .header-drawer-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   height: 26px;
-  min-width: 90px;
+  width: 30px;
   border: 1px solid var(--color-border-subtle);
   background: var(--color-bg-panel);
   color: var(--color-text-primary);
@@ -19821,6 +19810,12 @@ html[data-theme="dark"] .scratch-pad-md mark {
   border-bottom-right-radius: 0;
 }
 
+/* 折叠态：v3-braun 的选择器优先级高于通用 .list-collapsed 规则，
+   需显式隐藏 sidebar-body 避免文字残留可见。 */
+.list-collapsed .chat-list-pane.v3-braun .sidebar-body {
+  display: none !important;
+}
+
 .wechat-shell:not(.list-collapsed) .chat-list-pane.v3-braun {
   background: var(--color-bg-panel);
 }
@@ -19854,11 +19849,15 @@ html[data-theme="dark"] .scratch-pad-md mark {
 }
 
 .chat-list-pane.v3-braun .sidebar-body .brand-lockup {
-  gap: 14px;
+  gap: 10px;
   align-items: center;
-  /* 保留基础右移，侧栏场景不再清零 */
-  margin: 0 0 0 8px;
+  margin: 0;
   padding: 0;
+}
+
+.chat-list-pane.v3-braun .sidebar-body .brand-lockup .pi-logo-canvas-stage {
+  width: 28px;
+  height: 28px;
 }
 
 .chat-list-pane.v3-braun .sidebar-body .search-row {
