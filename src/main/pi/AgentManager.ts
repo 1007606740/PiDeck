@@ -742,7 +742,10 @@ export class AgentManager {
 		const t2 = Date.now();
 
 		void this.appLogger?.info("agent", "Agent pi process start", { agentId: id });
-		const process = new PiProcess(project.path, this.settingsStore.get());
+		// agentHomeDir：WSL 模式下扩展目录在映射的 Windows home，需与 ExtensionManager 一致。
+		const process = new PiProcess(project.path, this.settingsStore.get(), undefined, {
+			agentHomeDir: this.wslEnvironment?.windowsHome,
+		});
 		process.on("version-check", (payload) => {
 			void this.appLogger?.info("agent", "Pi version check completed", {
 				agentId: id,
@@ -859,6 +862,19 @@ export class AgentManager {
 					? `${project.name} 历史会话`
 					: `${project.name} agent`);
 			tab.status = "idle";
+			// 若因桌面兼容性自动跳过了 codeisland 等扩展，给用户一条系统说明，避免「扩展在却不生效」困惑。
+			const blockedOnStart = process.getDiagnostics()?.blockedExtensions;
+			if (blockedOnStart && blockedOnStart.length > 0) {
+				this.addMessage(
+					id,
+					"system",
+					`已临时停用与 PiDeck 不兼容的扩展：${blockedOnStart.join(", ")}（仅桌面 RPC 会话期间；其它扩展与 npm 包装扩展不受影响，Agent 结束后会自动恢复，CLI 仍可正常使用）。`,
+				);
+				void this.appLogger?.info("agent", "Desktop-blocked extensions skipped", {
+					agentId: id,
+					blocked: blockedOnStart,
+				});
+			}
 			// 大历史会话的 get_messages 可能需要十几秒；Agent 可用只依赖 get_state，
 			// 因此历史消息后台加载，避免 40MB+ 会话把“打开 Agent”阻塞到十几秒。
 			// 同时插入一条临时系统消息，给用户明确的加载反馈，避免空白页面看起来像冻结。
@@ -1369,7 +1385,9 @@ export class AgentManager {
 			sessionPath,
 		});
 
-		const process = new PiProcess(project.path, this.settingsStore.get());
+		const process = new PiProcess(project.path, this.settingsStore.get(), undefined, {
+			agentHomeDir: this.wslEnvironment?.windowsHome,
+		});
 		// 与 createUnlocked 一致：先挂生命周期监听，再 start，避免 error 事件无 listener。
 		this.attachPiProcessLifecycle(agentId, process, {
 			projectPath: project.path,
@@ -2543,7 +2561,9 @@ export class AgentManager {
 	): Promise<T> {
 		const project = this.getProject(projectId);
 		if (!project) throw new Error(`Project not found: ${projectId}`);
-		const process = new PiProcess(project.path, this.settingsStore.get());
+		const process = new PiProcess(project.path, this.settingsStore.get(), undefined, {
+			agentHomeDir: this.wslEnvironment?.windowsHome,
+		});
 		// 临时会话同样可能触发 spawn error；先挂 sink 再 start，避免未捕获 error 拖垮主进程。
 		process.on("error", (error) => {
 			void this.appLogger?.error("agent", "Temporary session pi process error", {
@@ -2942,6 +2962,10 @@ export class AgentManager {
 		lines.push(`工作目录: ${diag.cwd}`);
 		lines.push(`版本检测: ${diag.versionCheck ? "✓ 通过" : "✗ 失败"}`);
 		lines.push(`运行环境: ${globalThis.process.platform}/${globalThis.process.arch}`);
+		if (diag.blockedExtensions && diag.blockedExtensions.length > 0) {
+			// 桌面端已自动隔离的扩展（如 codeisland），方便用户对照「为何 RPC 没加载该扩展」。
+			lines.push(`已自动隔离扩展: ${diag.blockedExtensions.join(", ")}`);
+		}
 		lines.push("");
 		lines.push("━━━ 排查步骤 ━━━");
 		if (!diag.versionCheck) {

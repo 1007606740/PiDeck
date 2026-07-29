@@ -7507,6 +7507,31 @@ body.ask-bar-active .ask-inline-bar--timeline {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
+
+/* ```latex / ```tex / ```math 围栏：与代码块同壳，内容区用 KaTeX 块级排版 */
+.latex-block-content {
+  max-width: 100%;
+  min-width: 0;
+  padding: 36px var(--space-3) var(--space-3);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.latex-block-content .katex-display {
+  margin: 0;
+}
+
+.latex-block-error {
+  display: block;
+  margin: 36px var(--space-3) var(--space-2);
+  color: var(--color-danger);
+  font-size: var(--font-size-caption);
+  font-family: var(--font-family-business);
+}
+
+.latex-block--fallback pre {
+  padding-top: var(--space-2);
+}
 .markdown-body table {
   display: block;
   box-sizing: border-box;
