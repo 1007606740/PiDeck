@@ -70,7 +70,9 @@ import {
   buildComposerPromptSubmission,
   expandPromptTemplates,
   getComposerEnterIntent,
+  getComposerHistoryLineBounds,
   parseArgumentHint,
+  resolveComposerHistoryDraft,
   translateBuiltinPromptDescription,
 } from "./composerBehavior";
 import {
@@ -4973,13 +4975,21 @@ export function App() {
       }
     }
 
-    // 历史命令导航:只在光标位于第一行时生效
+    // 历史命令导航：只在光标位于第一行/最后一行时生效。
+    // 普通输入只更新 livePromptByAgentRef、不触发 App 重渲染，因此这里必须读 live 草稿，
+    // 不能用闭包里的 prompt——否则 ArrowUp 会把“上次重渲染时的半截文本”当草稿保存，
+    // ArrowDown 恢复后就会丢掉中间继续输入的内容。
     const editor = event.currentTarget;
     const cursorPos = getCaretOffsetOf(editor);
-    const textBeforeCursor = prompt.substring(0, cursorPos);
-    const isFirstLine = !textBeforeCursor.includes('\n');
-    const textAfterCursor = prompt.substring(cursorPos);
-    const isLastLine = !textAfterCursor.includes('\n');
+    const liveComposerDraft = resolveComposerHistoryDraft({
+      activeAgentId: activeAgentIdRef.current,
+      livePromptByAgent: livePromptByAgentRef.current,
+      renderedPrompt: prompt,
+    });
+    const { isFirstLine, isLastLine } = getComposerHistoryLineBounds(
+      liveComposerDraft,
+      cursorPos,
+    );
 
     // 当前 Agent 的历史记录
     const agentHistory = promptHistoryRef.current[activeAgentIdRef.current ?? ''] ?? [];
@@ -4987,9 +4997,9 @@ export function App() {
     if (event.key === "ArrowUp" && isFirstLine && agentHistory.length > 0) {
       event.preventDefault();
 
-      // 首次导航时保存当前输入
+      // 首次导航时保存当前 live 草稿（不是可能过期的 rendered prompt）
       if (!historyNavigating) {
-        setSavedPrompt(prompt);
+        setSavedPrompt(liveComposerDraft);
         setHistoryNavigating(true);
         const newIndex = 0;
         setHistoryIndex(newIndex);
@@ -5033,9 +5043,11 @@ export function App() {
     if (event.key === "Escape") {
       const el = event.currentTarget;
       const cursor = getCaretOffsetOf(el);
-      const liveComposerPrompt = activeAgentIdRef.current
-        ? (livePromptByAgentRef.current[activeAgentIdRef.current] ?? prompt)
-        : prompt;
+      const liveComposerPrompt = resolveComposerHistoryDraft({
+        activeAgentId: activeAgentIdRef.current,
+        livePromptByAgent: livePromptByAgentRef.current,
+        renderedPrompt: prompt,
+      });
       const result = clearSuggestionTrigger(liveComposerPrompt, cursor);
       setPrompt(result.text);
       setComposerCursor(result.cursor);
