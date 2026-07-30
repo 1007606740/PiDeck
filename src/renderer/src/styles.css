@@ -8804,6 +8804,19 @@ body.is-composer-resizing .composer-resize-handle::after {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 目录建议项：文件夹图标 + 路径 label，与文件项对齐 */
+.command-palette-dir-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.command-palette-dir-label svg {
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+.command-palette-item.is-directory .command-palette-label {
+  color: var(--color-text-primary);
+}
 .command-palette-desc {
   flex: 1;
   min-width: 0;

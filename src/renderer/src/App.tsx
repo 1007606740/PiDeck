@@ -3604,7 +3604,27 @@ export function App() {
 
   function openFilePath(path: string) {
     // 绝对路径直接打开;相对路径按当前 agent cwd / 项目目录解析。
-    const resolvedPath = resolveFileLinkPath(path, activeAgent?.cwd ?? activeProject?.path);
+    // unwrapFileChipPath 已剥尾斜杠；这里再兜底一次，兼容消息里手写的 src/
+    const cleanedPath = path.replace(/[/\\]+$/, "");
+    const resolvedPath = resolveFileLinkPath(cleanedPath, activeAgent?.cwd ?? activeProject?.path);
+    // 目录引用：在资源管理器中定位，避免被 isTextFile 误当成无扩展名文本文件打开。
+    const normalizedInput = cleanedPath.replace(/\\/g, "/");
+    const normalizedResolved = resolvedPath.replace(/\\/g, "/");
+    const isDirectoryRef = flatFiles.some(
+      (node) =>
+        node.type === "directory" &&
+        (node.path === resolvedPath ||
+          node.relativePath === normalizedInput ||
+          node.relativePath === normalizedResolved),
+    );
+    if (isDirectoryRef) {
+      void api.files.showInFolder(resolvedPath).catch((error) => {
+        showToast(t("app.openFileFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      });
+      return;
+    }
     // 文本文件→内置编辑器；二进制→系统默认应用。
     if (isTextFile(resolvedPath)) {
       viewFilePath(resolvedPath);
@@ -5756,8 +5776,23 @@ export function App() {
     const liveComposerPrompt = activeAgentIdRef.current
       ? (livePromptByAgentRef.current[activeAgentIdRef.current] ?? prompt)
       : prompt;
-    // 含空格路径写成 @"C:\Users\a b\file.txt"，避免 chip 解析在空格处截断。
-    const refText = paths.map((p) => formatFilePathRef(p)).join(" ");
+    // 含空格路径写成 @"C:\Users\a b\file.txt"；工作区目录追加尾斜杠，避免 @src 被当成智能体。
+    const refText = paths
+      .map((p) => {
+        const cleaned = p.replace(/[/\\]+$/, "");
+        const normalized = cleaned.replace(/\\/g, "/");
+        const isDir =
+          /[/\\]$/.test(p) ||
+          flatFiles.some(
+            (node) =>
+              node.type === "directory" &&
+              (node.path === cleaned ||
+                node.path === p ||
+                node.relativePath === normalized),
+          );
+        return formatFilePathRef(p, { isDirectory: isDir });
+      })
+      .join(" ");
     const spacer =
       cursor > 0 &&
       liveComposerPrompt[cursor - 1] !== " " &&
@@ -9168,9 +9203,13 @@ export function App() {
             setFileMenu(null);
           }}
           onAttach={() => {
+            // 目录引用必须带尾斜杠，保证渲染为路径 chip 且模型不误判为智能体 mention。
+            const ref = formatFilePathRef(fileMenu.node.relativePath, {
+              isDirectory: fileMenu.node.type === "directory",
+            });
             setPrompt(
               (current) =>
-                `${current}${current.endsWith(" ") || current.length === 0 ? "" : " "}@${fileMenu.node.relativePath} `,
+                `${current}${current.endsWith(" ") || current.length === 0 ? "" : " "}${ref} `,
             );
             setFileMenu(null);
           }}

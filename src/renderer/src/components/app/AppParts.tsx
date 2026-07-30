@@ -6127,8 +6127,8 @@ export function PromptSuggestions(props: {
 			<div className="command-palette-list" ref={listRef}>
 				{props.items.map((item, index) => {
 				const indent = item.treeDepth != null ? `${item.treeDepth * 20}px` : "0px";
-				if (item.disabled) {
-					// 目录树节点：缩进 + 文件夹图标，选中时加高亮背景
+			if (item.disabled) {
+					// 不可选分组头（保留兼容）；目录本身已改为可选建议项
 					return (
 						<div
 							key={item.key}
@@ -6144,12 +6144,19 @@ export function PromptSuggestions(props: {
 				return (
 					<button
 						key={item.key}
-						className={`command-palette-item${index === props.selectedIndex ? " selected" : ""}`}
+						className={`command-palette-item${item.isDirectory ? " is-directory" : ""}${index === props.selectedIndex ? " selected" : ""}`}
 						style={{ paddingLeft: `calc(12px + ${indent})` }}
 						onMouseEnter={() => props.onSelectedIndexChange(index)}
 						onClick={() => props.onPick(item.value)}
 					>
-						<span className="command-palette-label">{item.label}</span>
+						{item.isDirectory ? (
+							<span className="command-palette-label command-palette-dir-label">
+								<Folder size={13} strokeWidth={1.8} aria-hidden="true" />
+								{item.label}
+							</span>
+						) : (
+							<span className="command-palette-label">{item.label}</span>
+						)}
 						<span className="command-palette-desc">{item.description}</span>
 					</button>
 				);

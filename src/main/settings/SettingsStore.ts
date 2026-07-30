@@ -35,12 +35,12 @@ export function readElectronChromiumSandboxPreference(): boolean {
 
 /**
  * 在 app.ready 之前同步读取单实例偏好。
- * `requestSingleInstanceLock` 必须在 ready 前调用。
- * 缺省 true：再次打开时复用窗口，避免托盘隐藏后再点图标开出第二个进程。
+ * 版本级单实例锁必须在 ready 前申请（见 main/singleInstance.ts）。
+ * 缺省 true：同一版本再次打开时复用窗口；不同版本始终可并行。
  */
 export function readSingleInstancePreference(): boolean {
 	const value = readDesktopSettingsSync().singleInstance;
-	// 未配置时默认开启单实例；只有显式 false 才允许多开。
+	// 未配置时默认开启单实例；只有显式 false 才允许同版本多开。
 	return value !== false;
 }
 

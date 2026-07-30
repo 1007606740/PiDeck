@@ -25,12 +25,24 @@ import {
 	readElectronChromiumSandboxPreference,
 	readSingleInstancePreference,
 } from "./settings/SettingsStore";
+import { acquireVersionSingleInstance } from "./singleInstance";
 import type { StartupWindowMode } from "../shared/types";
 // 使用 ?asset 后缀导入图标，electron-vite 会在构建时将其复制到输出目录并提供正确的运行时路径
 // 这解决了打包后 build/ 目录不在 asar 中导致托盘图标丢失的问题
 import iconPath from "../../build/icon.png?asset";
 
 applyLinuxDisplayBackendWorkaround();
+
+// 开发态与正式版隔离 userData。
+// 否则 npm run dev 会与已安装的 PiDeck 共用数据/锁，表现为「开发启动被复用到正式版窗口」。
+// 必须在读取 settings / 版本单实例锁之前设置。
+if (!app.isPackaged) {
+	const baseUserData = app.getPath("userData");
+	// 仅在尚未指向 *-dev 时追加，避免重复拼接。
+	if (!/[\\/]pi-desktop-dev$/i.test(baseUserData) && !/dev$/i.test(baseUserData)) {
+		app.setPath("userData", `${baseUserData}-dev`);
+	}
+}
 
 // Chromium 沙箱开关必须在 app.ready 前生效。
 // 默认关闭：Windows 上部分安全软件/旧 GPU 驱动会在沙箱初始化时触发原生断点（0x80000003）。
@@ -41,15 +53,23 @@ if (!electronChromiumSandboxEnabled) {
 	app.commandLine.appendSwitch("no-sandbox");
 }
 
-// 单实例锁必须在 ready 前申请。默认开启：再次点击快捷方式/文件关联时复用窗口。
-// 关闭 singleInstance 后允许同时跑多个 PiDeck（调试/多配置场景）。
+// 按「应用版本」隔离的单实例：同版本复用窗口，不同版本可并行。
+// 不用 Electron requestSingleInstanceLock：它按 userData 全局互斥，会导致 0.6.7 与 0.6.8 无法同开。
+// focus 回调稍后挂到 focusMainWindow（定义在文件后部），避免顶层 TDZ。
+let focusExistingWindow: (() => void) | null = null;
 const singleInstanceEnabled = readSingleInstancePreference();
-const gotSingleInstanceLock = singleInstanceEnabled
-	? app.requestSingleInstanceLock()
-	: true;
+const versionSingleInstance = acquireVersionSingleInstance(
+	singleInstanceEnabled,
+	app.getVersion(),
+	() => {
+		focusExistingWindow?.();
+	},
+);
+const gotSingleInstanceLock = versionSingleInstance.isPrimary;
 if (singleInstanceEnabled && !gotSingleInstanceLock) {
-	// 已有实例在跑：退出当前进程，由 first instance 的 second-instance 事件唤起窗口。
-	app.quit();
+	// 同版本已有实例：立即退出，由主实例 watch .focus 后唤起窗口。
+	// 用 exit(0) 而不是 quit()：第二进程尚未 ready，quit 更慢。
+	app.exit(0);
 }
 
 // 开发模式下 stdout 管道可能断开导致 EPIPE 崩溃，全局静默处理
@@ -586,9 +606,43 @@ async function installDownloadedUpdate(filePath: string) {
 function focusMainWindow() {
 	if (!mainWindow || mainWindow.isDestroyed()) return;
 	if (mainWindow.isMinimized()) mainWindow.restore();
+	// 托盘隐藏时需重新显示任务栏按钮，否则只 focus 可能仍不可见。
+	if (typeof mainWindow.setSkipTaskbar === "function") {
+		mainWindow.setSkipTaskbar(false);
+	}
 	mainWindow.show();
 	mainWindow.focus();
+	// Windows：短暂置顶再取消，避免已有窗口在后台时 second-instance 只亮任务栏不前置。
+	if (process.platform === "win32") {
+		mainWindow.setAlwaysOnTop(true);
+		mainWindow.setAlwaysOnTop(false);
+	}
 }
+
+/**
+ * 同版本次实例请求聚焦：窗口已在则前置；若窗口尚未创建/已销毁，ready 后重建。
+ * 挂到顶层 focusExistingWindow，供版本单实例锁的 .focus 信号调用。
+ */
+function handleVersionFocusRequest() {
+	if (mainWindow && !mainWindow.isDestroyed()) {
+		focusMainWindow();
+		return;
+	}
+	void app.whenReady().then(() => {
+		if (mainWindow && !mainWindow.isDestroyed()) {
+			focusMainWindow();
+			return;
+		}
+		if (settingsStore) {
+			void createWindow().catch((error) => {
+				void appLogger?.error("app", "Failed to recreate window on version focus request", error);
+			});
+		}
+	});
+}
+
+// 顶层锁回调延后绑定：focusMainWindow / createWindow 定义在锁申请之后。
+focusExistingWindow = handleVersionFocusRequest;
 
 function setupTray() {
 	// iconPath 由 electron-vite 的 ?asset 后缀自动解析，打包后也能正确定位
@@ -3711,30 +3765,11 @@ function resetGenIdleTimer() {
 	if (genIdleTimer && typeof genIdleTimer === "object") genIdleTimer.unref?.();
 }
 
-// 二次启动：用户再次点快捷方式时，若单实例开启则唤起已有窗口（含托盘隐藏态）。
-if (singleInstanceEnabled && gotSingleInstanceLock) {
-	app.on("second-instance", () => {
-		if (mainWindow && !mainWindow.isDestroyed()) {
-			focusMainWindow();
-			return;
-		}
-		// 主窗口尚未创建或已被销毁时，等 ready 后再建窗（极少见竞态）。
-		void app.whenReady().then(() => {
-			if (mainWindow && !mainWindow.isDestroyed()) {
-				focusMainWindow();
-				return;
-			}
-			if (settingsStore) {
-				void createWindow().catch((error) => {
-					void appLogger?.error("app", "Failed to recreate window on second-instance", error);
-				});
-			}
-		});
-	});
-}
+// 同版本二次启动的唤起由 acquireVersionSingleInstance 的 .focus 文件 + handleVersionFocusRequest 完成。
+// 不再使用 Electron 全局 second-instance（它无法按版本区分）。
 
 app.whenReady().then(async () => {
-	// 未拿到单实例锁时不要继续初始化，避免第二进程短暂闪窗。
+	// 未拿到同版本主实例锁时不要继续初始化，避免第二进程短暂闪窗。
 	if (singleInstanceEnabled && !gotSingleInstanceLock) return;
 
 	projectStore = new ProjectStore();
